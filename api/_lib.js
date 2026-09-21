@@ -17,8 +17,8 @@ export async function fetchDongList(serviceKey) {
   if (!res.ok) throw new Error(`baroApi 호출 실패: ${res.status}`);
   const data = await res.json();
 
-  // 실제 응답 구조 확인 결과: 최상위에 response 껍데기가 없고 바로 header/body가 있음.
-  // body.items가 바로 배열임 (item으로 한 번 더 감싸져 있지 않음).
+  // 실제 응답 구조 확인 결과: response.body.items 가 바로 배열임 (item으로 한 번 더
+  // 감싸져 있지 않음). 혹시 결과가 1건일 때 객체로 오는 경우까지 대비해 배열로 통일.
   const items = data?.body?.items ?? [];
   return Array.isArray(items) ? items : [items];
 }
@@ -48,23 +48,35 @@ export function matchDong(list, cityText, dongText) {
 
 // 자동완성용: 사용자가 타이핑하는 중간에 부분 일치하는 행정동 후보를 찾는다.
 // "용인시 기흥구 동백" 처럼 입력해도 도중에 매칭되도록 전체 결합 문자열에서 검색.
+// "동백1동/2동/3동"처럼 숫자로 쪼개진 동은 "동백동" 하나로 묶어서 보여주고,
+// 실제 코드는 여러 개(adongCds 배열)로 들고 있다가 나중에 다 더해서 계산한다.
 export function suggestDong(list, query, limit = 8) {
-  const q = norm(query);
+  const q = stripNum(query);
   if (!q) return [];
-  const results = [];
+
+  const groups = new Map(); // key: 시도+시군구+숫자뺀동이름 -> { label, ctprvnCd, signguCd, adongCds: [] }
+
   for (const it of list) {
-    const combined = norm(`${it.ctprvnNm || ""}${it.signguNm || ""}${it.adongNm || ""}`);
-    if (combined.includes(q)) {
-      results.push({
-        label: `${it.ctprvnNm} ${it.signguNm} ${it.adongNm}`,
+    const dongClean = stripNum(it.adongNm || "");
+    const combined = stripNum(`${it.ctprvnNm || ""}${it.signguNm || ""}${it.adongNm || ""}`);
+    if (!combined.includes(q)) continue;
+
+    const key = `${it.ctprvnNm}|${it.signguNm}|${dongClean}`;
+    if (!groups.has(key)) {
+      // 숫자를 뺀 이름으로 표시 (동백1동 -> 동백동)
+      const displayDong = (it.adongNm || "").replace(/[0-9]/g, "") || it.adongNm;
+      groups.set(key, {
+        label: `${it.ctprvnNm} ${it.signguNm} ${displayDong}`,
         ctprvnCd: it.ctprvnCd,
         signguCd: it.signguCd,
-        adongCd: it.adongCd,
+        adongCds: [],
       });
-      if (results.length >= limit) break;
+      if (groups.size > limit) break; // 그룹 개수 기준으로 제한
     }
+    groups.get(key).adongCds.push(it.adongCd);
   }
-  return results;
+
+  return Array.from(groups.values()).slice(0, limit);
 }
 
 // 업종 대/중/소분류 코드 목록 조회 후, 한글 업종명으로 코드를 찾는다.
@@ -96,6 +108,6 @@ export async function countStoresInDong(serviceKey, adongCd, upjongParam) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`storeListInDong 호출 실패: ${res.status}`);
   const data = await res.json();
-  // 위와 동일하게 response 껍데기 없이 바로 body.totalCount로 옴
+  // totalCount 위치도 배포 후 실제 응답으로 확인 필요 (body.totalCount 가정)
   return Number(data?.body?.totalCount ?? 0);
 }
