@@ -384,18 +384,15 @@
         <div class="ac-list" id="ideaRegionList"></div>
         <div class="hint">목록에서 지역을 선택해야 진단할 수 있어</div>
       </div>
-      <div class="field">
-        <label for="ideaBiz">업종</label>
-        <select id="ideaBiz">
-          <option value="한식">한식</option>
-          <option value="중식">중식</option>
-          <option value="일식">일식</option>
-          <option value="피자">피자</option>
-          <option value="카페/디저트">카페 · 디저트</option>
-          <option value="치킨/주점">치킨 · 주점</option>
-          <option value="분식">분식</option>
-          <option value="양식">양식</option>
-        </select>
+      <div class="two-col">
+        <div class="field">
+          <label for="ideaBizMajor">업종 대분류</label>
+          <select id="ideaBizMajor" onchange="onBizMajorChange()"></select>
+        </div>
+        <div class="field">
+          <label for="ideaBiz">세부 업종</label>
+          <select id="ideaBiz"></select>
+        </div>
       </div>
       <div class="field">
         <label for="ideaName">내 아이디어 / 시그니처 메뉴</label>
@@ -630,6 +627,38 @@ document.addEventListener('click', (e) => {
   });
 });
 
+// ===== 업종 대분류 → 세부업종 =====
+// 세부업종 키워드가 곧 서버에 보내는 검색어라서, 여기 새 항목만 추가하면
+// 서버 코드 수정 없이 바로 반영됨 (diagnose.js가 텍스트로 업종코드를 찾아주는 방식이라서).
+const BIZ_TAXONOMY = {
+  "한식": ["백반/한정식", "고기/구이", "찌개/국밥", "면류(칼국수·냉면 등)", "기타 한식"],
+  "중식": ["중화요리", "마라탕/마라샹궈", "딤섬/중식디저트", "기타 중식"],
+  "일식": ["초밥/스시", "라멘/우동", "돈카츠", "이자카야", "기타 일식"],
+  "양식": ["피자", "햄버거", "파스타", "스테이크", "멕시칸", "기타 양식"],
+  "카페/디저트": ["카페", "베이커리", "디저트카페", "아이스크림/빙수"],
+  "치킨/주점": ["치킨", "호프/실내포차", "와인바/펍"],
+  "분식": ["떡볶이", "김밥", "튀김/순대", "기타 분식"],
+  "아시안/기타": ["쌀국수/베트남음식", "태국음식", "인도음식", "퓨전/기타"]
+};
+
+function populateBizMajor() {
+  const majorSel = document.getElementById('ideaBizMajor');
+  majorSel.innerHTML = Object.keys(BIZ_TAXONOMY)
+    .map((m) => `<option value="${m}">${m}</option>`)
+    .join('');
+  populateBizSub(Object.keys(BIZ_TAXONOMY)[0]);
+}
+function populateBizSub(major) {
+  const subSel = document.getElementById('ideaBiz');
+  const subs = BIZ_TAXONOMY[major] || [];
+  subSel.innerHTML = subs.map((s) => `<option value="${s}">${s}</option>`).join('');
+}
+function onBizMajorChange() {
+  const major = document.getElementById('ideaBizMajor').value;
+  populateBizSub(major);
+}
+populateBizMajor();
+
 const bizBaseline = {
   "한식": 62, "중식": 58, "일식": 55, "카페/디저트": 50,
   "치킨/주점": 52, "분식": 60, "양식": 48
@@ -643,11 +672,12 @@ function runIdea() {
   }
   const loc = regionState.idea.label;
   const adongCd = regionState.idea.adongCd;
+  const bizMajor = document.getElementById('ideaBizMajor').value;
   const biz = document.getElementById('ideaBiz').value;
   const item = document.getElementById('ideaName').value.trim() || "이 아이템";
 
   const seed = hashStr(loc + "|" + biz + "|" + item);
-  const base = bizBaseline[biz] || 55;
+  const base = bizBaseline[bizMajor] || 55;
   const variance = Math.floor(seededRandom(seed) * 30) - 15;
   const score = Math.max(12, Math.min(96, base + variance));
 
