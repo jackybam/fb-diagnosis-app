@@ -13,39 +13,64 @@ export default async function handler(req, res) {
     // "동백1동,동백2동,동백3동"처럼 콤마로 여러 개가 올 수 있음 (동백동으로 묶어서 보여준 경우)
     const adongCds = adongCd.split(",").map((s) => s.trim()).filter(Boolean);
 
-    // 1차: 세부 업종(예: "치즈탕수육"이 속한 "기타 중식")으로 시도
-    // 2차: 안 잡히면 대분류(예: "중식")로 넓혀서 시도 — 가짜 추정치보다 넓은 범위의 진짜 데이터가 낫다는 판단
-    // 중분류/소분류 조회는 서로 안 기다리고 동시에 쏨 (캐시 덕분에 두 번째 호출부턴 사실상 즉시 반환됨)
-    async function tryMatch(keyword) {
-      if (!keyword) return { codes: [], codeField: null };
+    // 코드 하나를 { field, value, name } 형태로 통일 (중분류/소분류가 섞여도 각자 자기 필드를 들고 다니게)
+    function toEntries(codes, field) {
+      return codes
+        .map((c) => ({ field, value: c[field], name: c.indsMclsNm || c.indsSclsNm || c.indsLclsNm }))
+        .filter((e) => e.value);
+    }
+
+    async function tryMatchOne(keyword) {
+      if (!keyword) return [];
       const [middleCodes, smallCodes] = await Promise.all([
         findUpjongCode(serviceKey, "middle", keyword),
         findUpjongCode(serviceKey, "small", keyword),
       ]);
-      if (middleCodes.length > 0) return { codes: middleCodes, codeField: "indsMclsCd" };
-      return { codes: smallCodes, codeField: "indsSclsCd" };
+      if (middleCodes.length > 0) return toEntries(middleCodes, "indsMclsCd");
+      return toEntries(smallCodes, "indsSclsCd");
     }
 
-    let { codes, codeField } = await tryMatch(biz);
+    // "국/탕/찌개류"처럼 실제 정부 업종명 자체에 "/"가 들어있는 경우가 많아서,
+    // 1차로 문자열 그대로 정확히 시도하고, 그게 실패할 때만 토큰별로 쪼개서 재시도한다.
+    async function tryMatch(keyword) {
+      const exact = await tryMatchOne(keyword);
+      if (exact.length > 0) return exact;
+
+      const tokens = keyword.split(/[\/,·]/).map((s) => s.trim()).filter(Boolean);
+      if (tokens.length <= 1) return exact; // 쪼갤 것도 없으면 그대로 실패
+
+      const results = await Promise.all(tokens.map((t) => tryMatchOne(t)));
+      const merged = [];
+      const seen = new Set();
+      for (const entries of results) {
+        for (const e of entries) {
+          const key = e.field + ":" + e.value;
+          if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(e);
+          }
+        }
+      }
+      return merged;
+    }
+
+    let entries = await tryMatch(biz);
     let matchLevel = "sub"; // 세부업종 기준으로 잡힘
 
-    if (codes.length === 0 && bizMajor) {
-      ({ codes, codeField } = await tryMatch(bizMajor));
+    if (entries.length === 0 && bizMajor) {
+      entries = await tryMatch(bizMajor);
       matchLevel = "major"; // 대분류로 넓혀서 잡힘
     }
 
-    if (codes.length === 0) {
+    if (entries.length === 0) {
       return res.status(404).json({ error: `"${biz}"/"${bizMajor}"에 해당하는 업종 코드를 찾지 못했습니다.` });
     }
 
     // 동(여러 개일 수 있음) × 업종코드(여러 개일 수 있음) 조합을 병렬로 전부 조회 후 합산
-    // (순서대로 하나씩 기다리면 느려서, 한꺼번에 쏘고 다 끝나길 기다리는 방식으로 변경)
     const tasks = [];
     for (const dongCode of adongCds) {
-      for (const c of codes) {
-        const codeValue = c[codeField] || c.indsMclsCd || c.indsSclsCd;
-        if (!codeValue) continue;
-        tasks.push(countStoresInDong(serviceKey, dongCode, { [codeField]: codeValue }));
+      for (const e of entries) {
+        tasks.push(countStoresInDong(serviceKey, dongCode, { [e.field]: e.value }));
       }
     }
     const counts = await Promise.all(tasks);
@@ -55,7 +80,7 @@ export default async function handler(req, res) {
       adongCd,
       biz,
       matchLevel, // "sub" | "major" — 프론트에서 태그 문구 다르게 표시
-      matchedUpjong: codes.map((c) => c.indsMclsNm || c.indsSclsNm || c.indsLclsNm).filter(Boolean),
+      matchedUpjong: entries.map((e) => e.name).filter(Boolean),
       storeCount: total,
     });
   } catch (e) {
