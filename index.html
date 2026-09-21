@@ -547,7 +547,7 @@ async function enhanceWithRealBuzz(item) {
 async function enhanceWithRealDensity(adongCd, biz, bizMajor, metricIndex) {
   try {
     if (!adongCd) return;
-    const diagRes = await fetch(`/api/diagnose?adongCd=${adongCd}&biz=${encodeURIComponent(biz)}&bizMajor=${encodeURIComponent(bizMajor)}`);
+    const diagRes = await fetch(`/api/diagnose?adongCd=${encodeURIComponent(adongCd)}&biz=${encodeURIComponent(biz)}&bizMajor=${encodeURIComponent(bizMajor)}`);
     const diag = await diagRes.json();
     if (!diagRes.ok || typeof diag.storeCount !== 'number') return;
 
@@ -579,8 +579,8 @@ function switchTab(tab) {
 // ===== 지역 자동완성 =====
 // 탭별로 선택된 지역 정보를 저장 (선택 안 하면 adongCd가 없어서 검증에 걸림)
 const regionState = {
-  idea: { adongCd: null, label: "" },
-  fran: { adongCd: null, label: "" }
+  idea: { adongCds: null, label: "" },
+  fran: { adongCds: null, label: "" }
 };
 let acDebounceTimer = null;
 
@@ -589,7 +589,7 @@ function onRegionInput(tabKey) {
   const listEl = document.getElementById(tabKey + 'RegionList');
 
   // 타이핑 중이면 이전 선택은 무효화 (다시 선택해야 진단 가능)
-  regionState[tabKey].adongCd = null;
+  regionState[tabKey].adongCds = null;
   regionState[tabKey].label = "";
 
   clearTimeout(acDebounceTimer);
@@ -630,7 +630,7 @@ function renderSuggestions(tabKey, results) {
 }
 
 function selectRegion(tabKey, region) {
-  regionState[tabKey].adongCd = region.adongCd;
+  regionState[tabKey].adongCds = region.adongCds;
   regionState[tabKey].label = region.label;
   document.getElementById(tabKey + 'Region').value = region.label;
   const listEl = document.getElementById(tabKey + 'RegionList');
@@ -686,13 +686,13 @@ const bizBaseline = {
 };
 
 function runIdea() {
-  if (!regionState.idea.adongCd) {
+  if (!regionState.idea.adongCds) {
     alert("지역을 목록에서 선택해주세요.");
     document.getElementById('ideaRegion').focus();
     return;
   }
   const loc = regionState.idea.label;
-  const adongCd = regionState.idea.adongCd;
+  const adongCd = regionState.idea.adongCds.join(',');
   const bizMajor = document.getElementById('ideaBizMajor').value;
   const biz = document.getElementById('ideaBiz').value;
   const item = document.getElementById('ideaName').value.trim() || "이 아이템";
@@ -749,7 +749,7 @@ function runIdea() {
 }
 
 function runFranchise() {
-  if (!regionState.fran.adongCd) {
+  if (!regionState.fran.adongCds) {
     alert("지역을 목록에서 선택해주세요.");
     document.getElementById('franRegion').focus();
     return;
