@@ -259,23 +259,27 @@
   .metrics { display: grid; gap: 14px; margin-bottom: 26px; }
   .metric-row {
     display: grid;
-    grid-template-columns: 112px 1fr 52px;
+    grid-template-columns: 122px 1fr 52px;
     align-items: center;
     gap: 10px;
   }
   .metric-row .m-label {
     font-size: 12.5px;
     color: var(--ink-soft);
-    white-space: nowrap;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    overflow: hidden;
   }
   .m-tag {
     display: inline-block;
-    margin-left: 6px;
-    font-size: 9.5px;
+    margin-left: 0;
+    font-size: 9px;
     padding: 1px 5px;
     border: 1px solid var(--line);
     color: var(--ink-soft);
-    vertical-align: middle;
+    white-space: nowrap;
   }
   .m-tag-real {
     border-color: var(--good);
@@ -386,6 +390,7 @@
           <option value="한식">한식</option>
           <option value="중식">중식</option>
           <option value="일식">일식</option>
+          <option value="피자">피자</option>
           <option value="카페/디저트">카페 · 디저트</option>
           <option value="치킨/주점">치킨 · 주점</option>
           <option value="분식">분식</option>
