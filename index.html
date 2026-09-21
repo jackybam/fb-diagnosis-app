@@ -524,18 +524,39 @@ function updateMetricRow(index, { label, val, unit, tag }) {
 
 // 지역+업종 기준 실제 동일업종 매장 수를 서버(API)에서 가져와 지표를 갱신한다.
 // 실패해도 화면은 그대로 두고 조용히 넘어간다 (추정치가 이미 표시되어 있으므로).
-async function enhanceWithRealDensity(adongCd, biz, metricIndex) {
+// 아이템명 기준 실제 검색어 트렌드로 상단 훅(관심도 지수)을 갱신한다.
+async function enhanceWithRealBuzz(item) {
+  try {
+    const r = await fetch(`/api/trend?keyword=${encodeURIComponent(item)}`);
+    const data = await r.json();
+    if (!r.ok || typeof data.changePct !== 'number') return;
+
+    const buzz = data.changePct;
+    document.getElementById('hookNum').textContent = (buzz >= 0 ? "+" : "") + buzz + "%";
+    document.getElementById('hookNum').style.color = buzz >= 0 ? "var(--good)" : "var(--bad)";
+    document.getElementById('hookText').innerHTML =
+      (buzz >= 0
+        ? `최근 3개월 "${item}" 관련 검색 관심도 변화 — 비슷한 컨셉을 찾는 사람이 늘고 있어요.`
+        : `최근 3개월 "${item}" 관련 검색 관심도 변화 — 트렌드가 주춤한 시기일 수 있어요.`) +
+      ` <span class="m-tag m-tag-real" style="margin-left:6px;">실데이터</span>`;
+  } catch (e) {
+    // 실패 시 추정치 훅 그대로 둠
+  }
+}
+
+async function enhanceWithRealDensity(adongCd, biz, bizMajor, metricIndex) {
   try {
     if (!adongCd) return;
-    const diagRes = await fetch(`/api/diagnose?adongCd=${adongCd}&biz=${encodeURIComponent(biz)}`);
+    const diagRes = await fetch(`/api/diagnose?adongCd=${adongCd}&biz=${encodeURIComponent(biz)}&bizMajor=${encodeURIComponent(bizMajor)}`);
     const diag = await diagRes.json();
     if (!diagRes.ok || typeof diag.storeCount !== 'number') return;
 
+    const isMajorLevel = diag.matchLevel === 'major';
     updateMetricRow(metricIndex, {
-      label: "동일업종 매장 수",
+      label: isMajorLevel ? `${bizMajor} 업종 포화도` : "업종 포화도",
       val: diag.storeCount,
       unit: "개",
-      tag: "실데이터"
+      tag: isMajorLevel ? "실데이터(대분류 기준)" : "실데이터"
     });
   } catch (e) {
     // API 서버 오류/네트워크 문제 — 추정치 그대로 둠
@@ -703,12 +724,15 @@ function runIdea() {
 
   renderMetrics([
     { label: "관심도 지수", val: Math.max(0, 50 + Math.floor(buzz/2)), unit: "점", higherBetter: true, goodTh: 60, midTh: 35, tag: "추정" },
-    { label: "유사 컨셉 매장", val: similarCount, unit: "개", higherBetter: false, max: 15, goodTh: 4, midTh: 8, tag: "추정" },
+    { label: "업종 포화도", val: similarCount, unit: "개", higherBetter: false, max: 15, goodTh: 4, midTh: 8, tag: "추정" },
     { label: "진입 난이도", val: entryDifficulty, unit: "%", higherBetter: false, goodTh: 35, midTh: 60, tag: "추정" }
   ]);
 
   // 실제 선택된 행정동 코드로 바로 조회 (텍스트 매칭 없음 — 자동완성으로 이미 확정된 값)
-  enhanceWithRealDensity(adongCd, biz, 1);
+  // 세부업종이 안 잡히면 서버가 대분류로 넓혀서 재시도함
+  enhanceWithRealDensity(adongCd, biz, bizMajor, 1);
+  // 아이템명 기준 실제 검색 트렌드로 상단 훅 교체 시도
+  enhanceWithRealBuzz(item);
 
   document.getElementById('insight').textContent =
     `${loc} 인근에서 "${item}"과(와) 겹치는 컨셉 매장은 약 ${similarCount}곳으로 ${similarCount <= 4 ? "아직 희소한 편" : "이미 여럿 시도된 편"}입니다. 진입 난이도는 ${entryDifficulty}%로 ${entryDifficulty > 60 ? "메뉴 구성이나 가격 전략을 세밀하게 짜야" : "비교적 수월하게 진입할 수 있을 것"}으로 보입니다.`;
