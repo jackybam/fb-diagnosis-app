@@ -538,6 +538,23 @@ const SUB_REF_MAP = {
   "베트남식 전문": "쌀국수", "기타 동남아식 전문": "태국음식", "포장마차/푸드트럭": "포장마차"
 };
 
+// 아이템명 안에 이 단어가 들어있으면 "이 세부업종이 더 맞지 않아?"라고 물어보기 위한 힌트 맵.
+// SUB_REF_MAP을 뒤집은 것 + 실제로 사람들이 흔히 쓰는 동의어 몇 개를 더 추가함.
+// (완벽하게 모든 경우를 잡아내는 건 아니고, 명백한 실수 몇 가지만 걸러내는 용도)
+const CATEGORY_HINT_MAP = {
+  "삼겹살": "돼지고기 구이/찜", "돼지고기": "돼지고기 구이/찜", "목살": "돼지고기 구이/찜",
+  "소고기": "소고기 구이/찜", "한우": "소고기 구이/찜", "갈비": "소고기 구이/찜",
+  "닭갈비": "닭/오리고기 구이/찜", "치킨": "치킨", "후라이드": "치킨", "닭강정": "치킨",
+  "피자": "피자", "버거": "버거", "햄버거": "버거",
+  "초밥": "일식 회/초밥", "스시": "일식 회/초밥", "라멘": "일식 면 요리", "돈카츠": "일식 카레/돈가스/덮밥", "돈가스": "일식 카레/돈가스/덮밥",
+  "파스타": "파스타/스테이크", "스테이크": "파스타/스테이크",
+  "마라탕": "마라탕/훠궈", "짜장면": "중국집", "짬뽕": "중국집",
+  "떡볶이": "김밥/만두/분식", "김밥": "김밥/만두/분식", "순대": "김밥/만두/분식",
+  "쌀국수": "베트남식 전문", "팟타이": "기타 동남아식 전문",
+  "빵": "빵/도넛", "케이크": "빵/도넛", "빙수": "아이스크림/빙수",
+  "칼국수": "국수/칼국수", "냉면": "냉면/밀면", "족발": "족발/보쌈", "보쌈": "족발/보쌈", "곱창": "곱창 전골/구이"
+};
+
 async function fetchRealBuzz(item, biz, bizMajor) {
   try {
     const narrowRef = SUB_REF_MAP[biz] || "";
@@ -676,7 +693,10 @@ function populateBizMajor() {
 function populateBizSub(major) {
   const subSel = document.getElementById('ideaBiz');
   const subs = BIZ_TAXONOMY[major] || [];
-  subSel.innerHTML = subs.map((s) => `<option value="${s}">${s}</option>`).join('');
+  const allValue = subs.join(","); // "전체" 선택 시 이 대분류의 세부업종을 다 합쳐서 조회
+  subSel.innerHTML =
+    subs.map((s) => `<option value="${s}">${s}</option>`).join('') +
+    `<option value="${allValue.replace(/"/g, '&quot;')}">전체 (${major} 통틀어)</option>`;
 }
 function onBizMajorChange() {
   const major = document.getElementById('ideaBizMajor').value;
@@ -700,7 +720,26 @@ async function runIdea() {
   const bizMajor = document.getElementById('ideaBizMajor').value;
   const biz = document.getElementById('ideaBiz').value;
   const customItem = document.getElementById('ideaName').value.trim();
-  const item = customItem || biz; // 이름 안 넣으면 선택한 세부업종 이름 그대로 사용
+
+  const isAllMode = biz.includes(","); // "전체 (OO 통틀어)" 선택한 경우
+  const bizDisplay = isAllMode ? `${bizMajor} 전체` : biz; // 화면에 보여줄 때만 쓰는 짧은 표기
+  const item = customItem || bizDisplay; // 이름 안 넣으면 선택한 세부업종(또는 "전체" 표기) 이름 그대로 사용
+
+  // 아이템명 안에 다른 세부업종을 암시하는 단어가 있으면 카테고리 선택 실수일 수 있으니 확인
+  // ("전체" 모드에서는 어차피 다 합쳐서 보니까 이 경고 자체가 의미 없어서 건너뜀)
+  if (customItem && !isAllMode) {
+    for (const [hint, suggestedBiz] of Object.entries(CATEGORY_HINT_MAP)) {
+      if (customItem.includes(hint) && suggestedBiz !== biz) {
+        const proceed = confirm(
+          `"${customItem}"은(는) "${suggestedBiz}" 세부업종에 더 가까워 보여요.\n` +
+          `지금 고른 세부업종은 "${biz}"인데, 이대로 진행할까요?\n\n` +
+          `(취소를 누르고 세부업종을 "${suggestedBiz}"로 바꾸면 더 정확한 결과가 나와요.)`
+        );
+        if (!proceed) return;
+        break; // 한 번만 물어봄
+      }
+    }
+  }
 
   const seed = hashStr(loc + "|" + biz + "|" + item);
   const base = bizBaseline[bizMajor] || 55;
@@ -726,7 +765,7 @@ async function runIdea() {
   const mockStoreCount = Math.floor(seededRandom(seed * 2.1) * 12);
   const storeCount = density ? density.storeCount : mockStoreCount;
   const isMajorLevel = density?.matchLevel === 'major';
-  const densityLabel = isMajorLevel ? `${bizMajor} 업종 포화도` : "업종 포화도";
+  const densityLabel = isMajorLevel ? `${bizMajor} 업종 포화도` : isAllMode ? `${bizMajor} 업종 포화도(전체)` : "업종 포화도";
   const densityTag = !density ? "추정" : isMajorLevel ? "실데이터(대분류 기준)" : "실데이터";
 
   // 관심도 지수: 실데이터(구간 내 상대 수준) 있으면 그걸로.
@@ -764,7 +803,7 @@ async function runIdea() {
 
   document.getElementById('scoreNum').textContent = score;
   document.getElementById('scoreTitle').textContent =
-    customItem ? `${loc} · ${biz} · "${item}"` : `${loc} · ${biz}`;
+    customItem ? `${loc} · ${bizDisplay} · "${item}"` : `${loc} · ${bizDisplay}`;
   document.getElementById('scoreSub').textContent =
     score >= 70 ? "지금 상권·업종 대비 시도해볼 만한 아이템 조합입니다."
     : score >= 45 ? "조건부로 검토해볼 만한 아이템 조합입니다."
