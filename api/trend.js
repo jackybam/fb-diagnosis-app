@@ -56,7 +56,8 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       keyword,
-      changePct, // null이면 계산 불가 (프론트에서 추정치 유지)
+      changePct, // 트렌드(변화율) — 상승/하락 방향
+      latestRatio: Math.round(last), // 관심도 지수 — 구간 내 최고치를 100으로 둔 현재 절대 수준 (변화율과 별개 지표)
       series,
     });
   } catch (e) {
