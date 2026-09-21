@@ -506,9 +506,44 @@ function renderMetrics(metrics) {
 // 실패해도 화면은 그대로 두고 조용히 넘어간다 (추정치가 이미 표시되어 있으므로).
 // 아이템명 기준 실제 검색어 트렌드로 상단 훅(관심도 지수)을 갱신한다.
 // 검색 트렌드 실데이터 조회 (DOM은 안 건드리고 결과만 반환 — 실패하면 null)
-async function fetchRealBuzz(item, bizMajor) {
+// 대분류 이름 자체가 검색어로 약한 경우가 있어서(예: "분식"은 카테고리명일 뿐 실제로
+// 그 단어 그대로 검색하는 사람은 적음 — "떡볶이"/"김밥" 등 구체적 메뉴로 검색함),
+// 비교 기준으로 쓸 "실제로 많이 검색되는 대표 단어"를 대분류(넓은 기준)로 매핑해둠.
+const REF_KEYWORD_MAP = {
+  "한식": "한식",
+  "중식": "중식",
+  "일식": "일식",
+  "양식": "파스타",
+  "카페/디저트": "카페",
+  "치킨/버거/피자": "치킨",
+  "주점": "술집",
+  "분식": "떡볶이",
+  "아시안/기타": "맛집"
+};
+
+// 세부업종별로 더 가까운 "좁은 기준어"도 따로 둠 (예: "국/탕/찌개류" -> "찌개").
+// 서버가 먼저 이 좁은 기준으로 시도해보고, 그 기준 자체가 약해서 비율이 비정상적으로
+// 높게 나오면 자동으로 위 대분류(넓은) 기준으로 전환함.
+const SUB_REF_MAP = {
+  "백반/한정식": "한정식", "국/탕/찌개류": "찌개", "국수/칼국수": "칼국수", "냉면/밀면": "냉면",
+  "전/부침개": "부침개", "족발/보쌈": "족발", "소고기 구이/찜": "소고기", "돼지고기 구이/찜": "삼겹살",
+  "닭/오리고기 구이/찜": "닭갈비", "곱창 전골/구이": "곱창", "해산물 구이/찜": "해물찜", "횟집": "회",
+  "중국집": "중국집", "마라탕/훠궈": "마라탕",
+  "일식 회/초밥": "초밥", "일식 면 요리": "라멘", "일식 카레/돈가스/덮밥": "돈가스",
+  "파스타/스테이크": "파스타", "경양식": "돈까스", "패밀리레스토랑": "패밀리레스토랑",
+  "카페": "카페", "빵/도넛": "빵집", "아이스크림/빙수": "빙수", "떡/한과": "떡집",
+  "치킨": "치킨", "버거": "버거", "피자": "피자", "토스트/샌드위치/샐러드": "샌드위치",
+  "요리 주점": "이자카야", "생맥주 전문": "호프", "일반 유흥 주점": "술집", "무도 유흥 주점": "클럽",
+  "김밥/만두/분식": "김밥",
+  "베트남식 전문": "쌀국수", "기타 동남아식 전문": "태국음식", "포장마차/푸드트럭": "포장마차"
+};
+
+async function fetchRealBuzz(item, biz, bizMajor) {
   try {
-    const r = await fetch(`/api/trend?keyword=${encodeURIComponent(item)}&ref=${encodeURIComponent(bizMajor)}`);
+    const narrowRef = SUB_REF_MAP[biz] || "";
+    const broadRef = REF_KEYWORD_MAP[bizMajor] || bizMajor;
+    const params = new URLSearchParams({ keyword: item, ref: narrowRef, broadRef });
+    const r = await fetch(`/api/trend?${params.toString()}`);
     const data = await r.json();
     if (!r.ok || typeof data.changePct !== 'number' || typeof data.latestRatio !== 'number') return null;
     return data;
@@ -681,7 +716,7 @@ async function runIdea() {
 
   const [density, buzz] = await Promise.all([
     fetchRealDensity(adongCd, biz, bizMajor),
-    fetchRealBuzz(item, bizMajor),
+    fetchRealBuzz(item, biz, bizMajor),
   ]);
 
   btn.disabled = false;
@@ -700,8 +735,8 @@ async function runIdea() {
   const mockBuzzPct = Math.floor(seededRandom(seed * 1.4) * 140) - 20;
   const changePct = buzz ? buzz.changePct : mockBuzzPct;
   const interestLevel = buzz ? buzz.latestRatio : Math.max(0, 50 + Math.floor(mockBuzzPct / 2));
-  const interestTag = !buzz ? "추정" : buzz.comparedToRef ? `실데이터(${bizMajor} 대비)` : "실데이터";
-  const interestLabel = buzz?.comparedToRef ? `관심도 (${bizMajor} 검색량 대비)` : "관심도 지수";
+  const interestTag = !buzz ? "추정" : buzz.comparedToRef ? `실데이터(${buzz.ref} 대비)` : "실데이터";
+  const interestLabel = buzz?.comparedToRef ? `관심도 (${buzz.ref} 검색량 대비)` : "관심도 지수";
   const interestUnit = buzz?.comparedToRef ? "%" : "점";
 
   // 경쟁 강도(구 "진입 난이도"): 매장 수+관심도 둘 다 실데이터면 그 조합으로 계산한 "모델 기반 추정".
@@ -720,7 +755,7 @@ async function runIdea() {
   document.getElementById('hook').style.display = 'flex';
   document.getElementById('hookNum').textContent = (changePct >= 0 ? "+" : "") + changePct + "%";
   document.getElementById('hookNum').style.color = changePct >= 0 ? "var(--good)" : "var(--bad)";
-  const refNote = buzz?.comparedToRef ? `${bizMajor} 검색량 대비 ` : '';
+  const refNote = buzz?.comparedToRef ? `${buzz.ref} 검색량 대비 ` : '';
   document.getElementById('hookText').innerHTML =
     (changePct >= 0
       ? `최근 3개월 "${item}" ${refNote}검색 관심도 변화 — 비슷한 컨셉을 찾는 사람이 늘고 있어요.`
