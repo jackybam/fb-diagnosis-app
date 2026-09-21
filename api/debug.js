@@ -1,4 +1,4 @@
-// 임시 디버그 엔드포인트 — 문제 원인 파악 후 삭제할 것
+// 임시 디버그 엔드포인트 — 문제 원인 파악 후 삭제할 것 
 const BASE = "https://apis.data.go.kr/B553077/api/open/sdsc2";
 
 export default async function handler(req, res) {
