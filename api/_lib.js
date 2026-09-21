@@ -86,6 +86,10 @@ export function suggestDong(list, query, limit = 8) {
         label: `${it.ctprvnNm} ${it.signguNm} ${displayDong}`,
         ctprvnCd: it.ctprvnCd,
         signguCd: it.signguCd,
+        // 인구 데이터 매칭용(_population.js)으로 이름을 따로도 들고 있음 (label은 합쳐진 표시용 문자열이라 재파싱하기 번거로움)
+        ctprvnNm: it.ctprvnNm,
+        signguNm: it.signguNm,
+        dongLabel: displayDong,
         adongCds: [],
       });
       if (groups.size > limit) break; // 그룹 개수 기준으로 제한

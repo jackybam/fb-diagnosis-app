@@ -569,11 +569,15 @@ async function fetchRealBuzz(item, biz, bizMajor) {
   }
 }
 
-// 업종 포화도(매장 수) 실데이터 조회
-async function fetchRealDensity(adongCd, biz, bizMajor) {
+// 업종 포화도(매장 수 + 인구 대비 밀도) 실데이터 조회
+async function fetchRealDensity(adongCd, biz, bizMajor, ctprvnNm, signguNm, dongLabel) {
   try {
     if (!adongCd) return null;
-    const r = await fetch(`/api/diagnose?adongCd=${encodeURIComponent(adongCd)}&biz=${encodeURIComponent(biz)}&bizMajor=${encodeURIComponent(bizMajor)}`);
+    const params = new URLSearchParams({ adongCd, biz, bizMajor });
+    if (ctprvnNm) params.set('ctprvnNm', ctprvnNm);
+    if (signguNm) params.set('signguNm', signguNm);
+    if (dongLabel) params.set('dongLabel', dongLabel);
+    const r = await fetch(`/api/diagnose?${params.toString()}`);
     const data = await r.json();
     if (!r.ok || typeof data.storeCount !== 'number') return null;
     return data;
@@ -652,6 +656,10 @@ function renderSuggestions(tabKey, results) {
 function selectRegion(tabKey, region) {
   regionState[tabKey].adongCds = region.adongCds;
   regionState[tabKey].label = region.label;
+  // 인구 데이터(행정안전부, 이름 기준 매칭)용 — SBIZ 코드 체계와 달라서 이름으로 따로 넘김
+  regionState[tabKey].ctprvnNm = region.ctprvnNm;
+  regionState[tabKey].signguNm = region.signguNm;
+  regionState[tabKey].dongLabel = region.dongLabel;
   document.getElementById(tabKey + 'Region').value = region.label;
   const listEl = document.getElementById(tabKey + 'RegionList');
   listEl.classList.remove('show');
@@ -755,7 +763,7 @@ async function runIdea() {
   btn.textContent = "진단 중...";
 
   const [density, buzz] = await Promise.all([
-    fetchRealDensity(adongCd, biz, bizMajor),
+    fetchRealDensity(adongCd, biz, bizMajor, regionState.idea.ctprvnNm, regionState.idea.signguNm, regionState.idea.dongLabel),
     fetchRealBuzz(item, biz, bizMajor),
   ]);
 
@@ -766,8 +774,16 @@ async function runIdea() {
   const mockStoreCount = Math.floor(seededRandom(seed * 2.1) * 12);
   const storeCount = density ? density.storeCount : mockStoreCount;
   const isMajorLevel = density?.matchLevel === 'major';
-  const densityLabel = isMajorLevel ? `${bizMajor} 업종 포화도` : isAllMode ? `${bizMajor} 업종 포화도(전체)` : "업종 포화도";
-  const densityTag = !density ? "추정" : isMajorLevel ? "실데이터(대분류 기준)" : "실데이터";
+  // 매장 수 그 자체(절대값)는 동네 크기에 따라 왜곡되므로, 인구 데이터가 매칭됐으면
+  // "인구 1만명당 매장 수"로 정규화해서 보여준다 (행정안전부 인구통계, 동 이름 기준 매칭).
+  // 인구 매칭이 안 된 지역(동 이름이 인구 데이터와 안 맞는 예외 케이스)이면 기존처럼 절대 개수로 대체.
+  const hasPop = density && typeof density.densityPer10k === 'number';
+  const densityVal = hasPop ? density.densityPer10k : storeCount;
+  const densityUnit = hasPop ? "개/만명" : "개";
+  const densityMax = hasPop ? 30 : 150;
+  const densityLabelBase = hasPop ? "업종 밀도(인구 대비)" : "업종 포화도";
+  const densityLabel = isMajorLevel ? `${bizMajor} ${densityLabelBase}` : isAllMode ? `${bizMajor} ${densityLabelBase}(전체)` : densityLabelBase;
+  const densityTag = !density ? "추정" : !hasPop ? (isMajorLevel ? "실데이터(대분류 기준, 인구매칭 안됨)" : "실데이터(인구매칭 안됨)") : isMajorLevel ? "실데이터(대분류 기준)" : "실데이터";
 
   // 관심도 지수: 실데이터(구간 내 상대 수준) 있으면 그걸로.
   // ref랑 비교됐으면 단위를 "점"이 아니라 "%"로 바꿔서 "OO 대비 몇 %"라는 걸 바로 알 수 있게 함
@@ -812,13 +828,16 @@ async function runIdea() {
 
   renderMetrics([
     { label: interestLabel, val: interestLevel, unit: interestUnit, max: buzz?.comparedToRef ? 100 : undefined, neutral: true, tag: interestTag },
-    { label: densityLabel, val: storeCount, unit: "개", max: 150, neutral: true, tag: densityTag },
+    { label: densityLabel, val: densityVal, unit: densityUnit, max: densityMax, neutral: true, tag: densityTag },
     { label: "경쟁 강도", val: competitionIntensity, unit: "%", neutral: true, tag: competitionTag }
   ]);
 
   // 무료 정보만으론 "이게 위험 신호인지 검증된 상권인지" 판단이 안 된다는 걸 숨기지 않고 그대로 말함
+  const popNote = hasPop
+    ? ` (거주인구 약 ${density.population.toLocaleString()}명 기준, 인구 1만명당 ${density.densityPer10k}곳)`
+    : '';
   document.getElementById('insight').textContent =
-    `${loc} 인근에 "${item}"과(와) 같은 카테고리로 분류되는 매장이 ${storeCount}곳 있습니다. ` +
+    `${loc} 인근에 "${item}"과(와) 같은 카테고리로 분류되는 매장이 ${storeCount}곳 있습니다${popNote}. ` +
     `이게 이미 과포화된 위험 신호인지, 오히려 수요가 검증된 상권이라는 신호인지는 이 숫자만으론 판단하기 어렵습니다. ` +
     `검색 관심도는 최근 ${changePct >= 0 ? '상승' : '하락'} 추세(${changePct}%)입니다.`;
 

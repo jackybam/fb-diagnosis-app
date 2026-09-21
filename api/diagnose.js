@@ -1,8 +1,9 @@
 import { findUpjongCode, countStoresInDong } from "./_lib.js";
+import { getPopulationForRegion } from "./_population.js";
 
 export default async function handler(req, res) {
   try {
-    const { adongCd = "", biz = "", bizMajor = "" } = req.query;
+    const { adongCd = "", biz = "", bizMajor = "", ctprvnNm = "", signguNm = "", dongLabel = "" } = req.query;
     const serviceKey = process.env.SBIZ_API_KEY;
     if (!serviceKey) {
       return res.status(500).json({ error: "SBIZ_API_KEY 환경변수가 설정되지 않았습니다." });
@@ -94,12 +95,20 @@ export default async function handler(req, res) {
     const counts = await Promise.all(tasks);
     const total = counts.reduce((sum, n) => sum + n, 0);
 
+    // 인구 대비 밀도(1만명당 매장 수). 행정안전부 인구 통계 파일(월 갱신, api/data/dong-population.json)을
+    // 동 이름 기준으로 매칭해서 계산 — 매칭 실패하면 population은 null, 프론트에서 "추정" 처리.
+    const popInfo = getPopulationForRegion(ctprvnNm, signguNm, dongLabel);
+    const population = popInfo ? popInfo.population : null;
+    const densityPer10k = population ? Math.round((total / population) * 10000 * 10) / 10 : null;
+
     return res.status(200).json({
       adongCd,
       biz,
       matchLevel, // "sub" | "major" — 프론트에서 태그 문구 다르게 표시
       matchedUpjong: entries.map((e) => e.name).filter(Boolean),
       storeCount: total,
+      population,
+      densityPer10k, // 인구 1만명당 매장 수 (population 매칭 실패 시 null)
     });
   } catch (e) {
     return res.status(500).json({ error: String(e.message || e) });
