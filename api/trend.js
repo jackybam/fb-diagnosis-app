@@ -64,11 +64,8 @@ export default async function handler(req, res) {
       ref: ref || null,
       comparedToRef: !!refSeriesRaw, // 기준 키워드랑 같이 조회돼서 100 기준점이 정직해졌는지 여부
       changePct, // 트렌드(변화율) — 상승/하락 방향
-      latestRatio: Math.round(last), // 관심도 지수 — ref가 있으면 "ref 대비" 정직한 상대 수준
+      latestRatio: Math.round(last * 10) / 10, // 관심도 지수 — ref 대비 정직한 상대 수준 (소수점 한 자리 유지)
       series: itemSeries,
-      // 진단용: ref를 같이 넣었을 때 네이버가 진짜 "묶어서 하나의 100 기준"을 쓰는지,
-      // 아니면 그룹마다 따로 100을 매기는지 원본 숫자로 직접 확인하기 위해 노출.
-      debugRefSeries: refSeriesRaw,
     });
   } catch (e) {
     return res.status(500).json({ error: String(e.message || e) });
