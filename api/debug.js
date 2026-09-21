@@ -1,5 +1,5 @@
-// 임시 디버그 엔드포인트 — 문제 원인 파악 후 삭제할 것 
-const BASE = "https://apis.data.go.kr/B553077/api/open/sdsc2";
+// 임시 디버그 엔드포인트 — 문제 원인 파악 후 삭제할 것
+import { fetchDongList, suggestDong } from "./_lib.js";
 
 export default async function handler(req, res) {
   try {
@@ -7,15 +7,21 @@ export default async function handler(req, res) {
     if (!serviceKey) {
       return res.status(500).json({ error: "SBIZ_API_KEY 없음" });
     }
-    const url = `${BASE}/baroApi?serviceKey=${serviceKey}&resId=dong&catId=admi&type=json`;
-    const r = await fetch(url);
-    const text = await r.text(); // json 파싱 전 원문 그대로 먼저 확인
+    const list = await fetchDongList(serviceKey);
+    const rawMatches = list.filter((it) =>
+      `${it.ctprvnNm || ""}${it.signguNm || ""}${it.adongNm || ""}`.includes("기흥구")
+    );
+    const suggestResult = suggestDong(list, "기흥구", 8);
+
     return res.status(200).json({
-      httpStatus: r.status,
-      rawLength: text.length,
-      rawFirst2000: text.slice(0, 2000),
+      totalListLength: list.length,
+      sampleFirstItem: list[0] || null,
+      sampleLastItem: list[list.length - 1] || null,
+      rawMatchCount: rawMatches.length,
+      rawMatchSample: rawMatches.slice(0, 3),
+      suggestDongResult: suggestResult,
     });
   } catch (e) {
-    return res.status(500).json({ error: String(e.message || e) });
+    return res.status(500).json({ error: String(e.message || e), stack: e.stack });
   }
 }
