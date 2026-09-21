@@ -15,15 +15,15 @@ export default async function handler(req, res) {
 
     // 1차: 세부 업종(예: "치즈탕수육"이 속한 "기타 중식")으로 시도
     // 2차: 안 잡히면 대분류(예: "중식")로 넓혀서 시도 — 가짜 추정치보다 넓은 범위의 진짜 데이터가 낫다는 판단
+    // 중분류/소분류 조회는 서로 안 기다리고 동시에 쏨 (캐시 덕분에 두 번째 호출부턴 사실상 즉시 반환됨)
     async function tryMatch(keyword) {
       if (!keyword) return { codes: [], codeField: null };
-      let codes = await findUpjongCode(serviceKey, "middle", keyword);
-      let codeField = "indsMclsCd";
-      if (codes.length === 0) {
-        codes = await findUpjongCode(serviceKey, "small", keyword);
-        codeField = "indsSclsCd";
-      }
-      return { codes, codeField };
+      const [middleCodes, smallCodes] = await Promise.all([
+        findUpjongCode(serviceKey, "middle", keyword),
+        findUpjongCode(serviceKey, "small", keyword),
+      ]);
+      if (middleCodes.length > 0) return { codes: middleCodes, codeField: "indsMclsCd" };
+      return { codes: smallCodes, codeField: "indsSclsCd" };
     }
 
     let { codes, codeField } = await tryMatch(biz);
@@ -38,16 +38,18 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: `"${biz}"/"${bizMajor}"에 해당하는 업종 코드를 찾지 못했습니다.` });
     }
 
-    // 동(여러 개일 수 있음) × 업종코드(여러 개일 수 있음) 조합을 전부 더함
-    let total = 0;
+    // 동(여러 개일 수 있음) × 업종코드(여러 개일 수 있음) 조합을 병렬로 전부 조회 후 합산
+    // (순서대로 하나씩 기다리면 느려서, 한꺼번에 쏘고 다 끝나길 기다리는 방식으로 변경)
+    const tasks = [];
     for (const dongCode of adongCds) {
       for (const c of codes) {
         const codeValue = c[codeField] || c.indsMclsCd || c.indsSclsCd;
         if (!codeValue) continue;
-        const count = await countStoresInDong(serviceKey, dongCode, { [codeField]: codeValue });
-        total += count;
+        tasks.push(countStoresInDong(serviceKey, dongCode, { [codeField]: codeValue }));
       }
     }
+    const counts = await Promise.all(tasks);
+    const total = counts.reduce((sum, n) => sum + n, 0);
 
     return res.status(200).json({
       adongCd,
