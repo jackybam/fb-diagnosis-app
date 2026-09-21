@@ -10,6 +10,8 @@ export default async function handler(req, res) {
     if (!adongCd) {
       return res.status(400).json({ error: "adongCd가 필요합니다." });
     }
+    // "동백1동,동백2동,동백3동"처럼 콤마로 여러 개가 올 수 있음 (동백동으로 묶어서 보여준 경우)
+    const adongCds = adongCd.split(",").map((s) => s.trim()).filter(Boolean);
 
     // 1차: 세부 업종(예: "치즈탕수육"이 속한 "기타 중식")으로 시도
     // 2차: 안 잡히면 대분류(예: "중식")로 넓혀서 시도 — 가짜 추정치보다 넓은 범위의 진짜 데이터가 낫다는 판단
@@ -36,13 +38,15 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: `"${biz}"/"${bizMajor}"에 해당하는 업종 코드를 찾지 못했습니다.` });
     }
 
-    // 여러 개 걸리면(예: "중식"이 여러 세부 업종에 걸칠 수 있음) 모두 합산
+    // 동(여러 개일 수 있음) × 업종코드(여러 개일 수 있음) 조합을 전부 더함
     let total = 0;
-    for (const c of codes) {
-      const codeValue = c[codeField] || c.indsMclsCd || c.indsSclsCd;
-      if (!codeValue) continue;
-      const count = await countStoresInDong(serviceKey, adongCd, { [codeField]: codeValue });
-      total += count;
+    for (const dongCode of adongCds) {
+      for (const c of codes) {
+        const codeValue = c[codeField] || c.indsMclsCd || c.indsSclsCd;
+        if (!codeValue) continue;
+        const count = await countStoresInDong(serviceKey, dongCode, { [codeField]: codeValue });
+        total += count;
+      }
     }
 
     return res.status(200).json({
