@@ -17,9 +17,9 @@ export async function fetchDongList(serviceKey) {
   if (!res.ok) throw new Error(`baroApi 호출 실패: ${res.status}`);
   const data = await res.json();
 
-  // 실제 응답 구조 확인 결과: response.body.items 가 바로 배열임 (item으로 한 번 더
-  // 감싸져 있지 않음). 혹시 결과가 1건일 때 객체로 오는 경우까지 대비해 배열로 통일.
-  const items = data?.response?.body?.items ?? [];
+  // 실제 응답 구조 확인 결과: 최상위에 response 껍데기가 없고 바로 header/body가 있음.
+  // body.items가 바로 배열임 (item으로 한 번 더 감싸져 있지 않음).
+  const items = data?.body?.items ?? [];
   return Array.isArray(items) ? items : [items];
 }
 
@@ -75,7 +75,7 @@ export async function findUpjongCode(serviceKey, level, keyword) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${endpoint} 호출 실패: ${res.status}`);
   const data = await res.json();
-  const items = data?.response?.body?.items ?? [];
+  const items = data?.body?.items ?? [];
   const arr = Array.isArray(items) ? items : [items];
   // 필드명(예: indsLclsCd/indsLclsNm 등)은 배포 후 실제 응답으로 1회 확인 필요
   return arr.filter((it) => Object.values(it).some((v) => String(v).includes(keyword)));
@@ -96,6 +96,6 @@ export async function countStoresInDong(serviceKey, adongCd, upjongParam) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`storeListInDong 호출 실패: ${res.status}`);
   const data = await res.json();
-  // totalCount 위치도 배포 후 실제 응답으로 확인 필요 (body.totalCount 가정)
-  return Number(data?.response?.body?.totalCount ?? 0);
+  // 위와 동일하게 response 껍데기 없이 바로 body.totalCount로 옴
+  return Number(data?.body?.totalCount ?? 0);
 }
