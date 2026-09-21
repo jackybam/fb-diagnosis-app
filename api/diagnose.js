@@ -54,7 +54,25 @@ export default async function handler(req, res) {
       return merged;
     }
 
-    let entries = await tryMatch(biz);
+    // biz가 "치킨,버거,피자"처럼 콤마로 여러 개 올 수 있음 ("전체" 옵션 — 대분류 안 세부업종 다 합산)
+    async function tryMatchAll(bizString) {
+      const pieces = bizString.split(",").map((s) => s.trim()).filter(Boolean);
+      const results = await Promise.all(pieces.map((p) => tryMatch(p)));
+      const merged = [];
+      const seen = new Set();
+      for (const entries of results) {
+        for (const e of entries) {
+          const key = e.field + ":" + e.value;
+          if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(e);
+          }
+        }
+      }
+      return merged;
+    }
+
+    let entries = await tryMatchAll(biz);
     let matchLevel = "sub"; // 세부업종 기준으로 잡힘
 
     if (entries.length === 0 && bizMajor) {
