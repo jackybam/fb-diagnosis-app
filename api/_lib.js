@@ -7,15 +7,32 @@ function norm(s) {
   return (s || "").replace(/\s+/g, "");
 }
 
+// 서버리스 함수가 "웜" 상태로 재사용되는 동안(같은 인스턴스가 연속 요청을 처리하는 동안)
+// 메모리에 캐시해서 같은 데이터를 반복해서 API에 재요청하지 않게 한다.
+// 인스턴스가 새로 뜨면(콜드 스타트) 캐시는 비워지지만, 그래도 반복 요청 상황에선 크게 빨라짐.
+// 데이터가 분기(quarter) 단위로만 갱신되는 자료라 30분 캐시로도 충분히 안전함.
+const CACHE_TTL_MS = 30 * 60 * 1000;
+let _dongListCache = { data: null, ts: 0 };
+const _upjongCache = {}; // level별 캐시
+
+async function cachedFetch(cacheObj, url) {
+  const now = Date.now();
+  if (cacheObj.data && now - cacheObj.ts < CACHE_TTL_MS) {
+    return cacheObj.data;
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`API 호출 실패: ${res.status}`);
+  const data = await res.json();
+  cacheObj.data = data;
+  cacheObj.ts = now;
+  return data;
+}
+
 // 행정동 전체 목록 (시도/시군구/행정동 코드+명칭)을 가져온다.
 // 이 API는 pageNo/numOfRows 파라미터가 없고 전국 목록을 한 번에 반환한다.
-// 서버리스 특성상 매 요청마다 다시 받아오지만(캐시 없음), 데모 트래픽 수준에서는 문제없다.
-// 트래픽이 늘면 이 결과를 별도 캐시(예: Vercel KV, 파일)에 저장해 재사용하는 걸 권장.
 export async function fetchDongList(serviceKey) {
   const url = `${BASE}/baroApi?serviceKey=${serviceKey}&resId=dong&catId=admi&type=json`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`baroApi 호출 실패: ${res.status}`);
-  const data = await res.json();
+  const data = await cachedFetch(_dongListCache, url);
 
   // 실제 응답 구조 확인 결과: response.body.items 가 바로 배열임 (item으로 한 번 더
   // 감싸져 있지 않음). 혹시 결과가 1건일 때 객체로 오는 경우까지 대비해 배열로 통일.
@@ -84,9 +101,8 @@ export async function findUpjongCode(serviceKey, level, keyword) {
   const endpoint =
     level === "large" ? "largeUpjongList" : level === "middle" ? "middleUpjongList" : "smallUpjongList";
   const url = `${BASE}/${endpoint}?serviceKey=${serviceKey}&type=json`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${endpoint} 호출 실패: ${res.status}`);
-  const data = await res.json();
+  if (!_upjongCache[level]) _upjongCache[level] = { data: null, ts: 0 };
+  const data = await cachedFetch(_upjongCache[level], url);
   const items = data?.body?.items ?? [];
   const arr = Array.isArray(items) ? items : [items];
   // 필드명(예: indsLclsCd/indsLclsNm 등)은 배포 후 실제 응답으로 1회 확인 필요
