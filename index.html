@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
@@ -540,11 +540,12 @@ async function enhanceWithRealBuzz(item, metricIndex) {
         : `최근 3개월 "${item}" 관련 검색 관심도 변화 — 트렌드가 주춤한 시기일 수 있어요.`) +
       ` <span class="m-tag m-tag-real" style="margin-left:6px;">실데이터</span>`;
 
-    // 아래 "관심도 지수" 지표 행도 같은 실데이터 기준으로 같이 갱신 (훅이랑 따로 놀지 않게)
-    if (typeof metricIndex === 'number') {
+    // 아래 "관심도 지수" 지표 행은 변화율이 아니라 "현재 절대적 관심 수준"(latestRatio)으로 갱신.
+    // 트렌드(위 훅, 오르내림)랑 관심도 수준(아래 지표, 지금 얼마나 관심 있나)은 서로 다른 정보라 분리함.
+    if (typeof metricIndex === 'number' && typeof data.latestRatio === 'number') {
       updateMetricRow(metricIndex, {
         label: "관심도 지수",
-        val: Math.max(0, 50 + Math.floor(buzz / 2)),
+        val: data.latestRatio,
         unit: "점",
         tag: "실데이터"
       });
