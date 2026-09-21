@@ -525,7 +525,7 @@ function updateMetricRow(index, { label, val, unit, tag }) {
 // 지역+업종 기준 실제 동일업종 매장 수를 서버(API)에서 가져와 지표를 갱신한다.
 // 실패해도 화면은 그대로 두고 조용히 넘어간다 (추정치가 이미 표시되어 있으므로).
 // 아이템명 기준 실제 검색어 트렌드로 상단 훅(관심도 지수)을 갱신한다.
-async function enhanceWithRealBuzz(item) {
+async function enhanceWithRealBuzz(item, metricIndex) {
   try {
     const r = await fetch(`/api/trend?keyword=${encodeURIComponent(item)}`);
     const data = await r.json();
@@ -539,8 +539,18 @@ async function enhanceWithRealBuzz(item) {
         ? `최근 3개월 "${item}" 관련 검색 관심도 변화 — 비슷한 컨셉을 찾는 사람이 늘고 있어요.`
         : `최근 3개월 "${item}" 관련 검색 관심도 변화 — 트렌드가 주춤한 시기일 수 있어요.`) +
       ` <span class="m-tag m-tag-real" style="margin-left:6px;">실데이터</span>`;
+
+    // 아래 "관심도 지수" 지표 행도 같은 실데이터 기준으로 같이 갱신 (훅이랑 따로 놀지 않게)
+    if (typeof metricIndex === 'number') {
+      updateMetricRow(metricIndex, {
+        label: "관심도 지수",
+        val: Math.max(0, 50 + Math.floor(buzz / 2)),
+        unit: "점",
+        tag: "실데이터"
+      });
+    }
   } catch (e) {
-    // 실패 시 추정치 훅 그대로 둠
+    // 실패 시 추정치 그대로 둠
   }
 }
 
@@ -734,7 +744,7 @@ function runIdea() {
   // 세부업종이 안 잡히면 서버가 대분류로 넓혀서 재시도함
   enhanceWithRealDensity(adongCd, biz, bizMajor, 1);
   // 아이템명 기준 실제 검색 트렌드로 상단 훅 교체 시도
-  enhanceWithRealBuzz(item);
+  enhanceWithRealBuzz(item, 0);
 
   document.getElementById('insight').textContent =
     `${loc} 인근에서 "${item}"과(와) 겹치는 컨셉 매장은 약 ${similarCount}곳으로 ${similarCount <= 4 ? "아직 희소한 편" : "이미 여럿 시도된 편"}입니다. 진입 난이도는 ${entryDifficulty}%로 ${entryDifficulty > 60 ? "메뉴 구성이나 가격 전략을 세밀하게 짜야" : "비교적 수월하게 진입할 수 있을 것"}으로 보입니다.`;
