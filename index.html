@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>상권 진단서</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #f6f2e8;
+    --paper-2: #eee7d6;
+    --ink: #1a2b23;
+    --ink-soft: #45564c;
+    --seal: #a63a2e;
+    --seal-soft: #c9564a;
+    --line: #cfc4a8;
+    --good: #3f6b4a;
+    --mid: #a97c1f;
+    --bad: #a63a2e;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14201a;
+      --paper-2: #1b2921;
+      --ink: #eae3d2;
+      --ink-soft: #a9b6ac;
+      --line: #33453a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14201a;
+    --paper-2: #1b2921;
+    --ink: #eae3d2;
+    --ink-soft: #a9b6ac;
+    --line: #33453a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--paper-2);
+    color: var(--ink);
+    font-family: "IBM Plex Sans KR", -apple-system, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 32px 16px 100px;
+    min-height: 100%;
+  }
+  .sheet {
+    width: 100%;
+    max-width: 560px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    position: relative;
+  }
+  .head {
+    padding: 36px 32px 24px;
+    text-align: center;
+    border-bottom: 1px solid var(--line);
+  }
+  .head .kicker {
+    font-size: 13px;
+    color: var(--ink-soft);
+    letter-spacing: 0.02em;
+    margin-bottom: 6px;
+  }
+  .head h1 {
+    font-family: "Fraunces", serif;
+    font-size: 30px;
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.25;
+  }
+
+  .tabs {
+    display: flex;
+    margin: 24px 32px 0;
+    border: 1px solid var(--line);
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 12px 8px;
+    background: var(--paper-2);
+    border: none;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .tab-btn + .tab-btn { border-left: 1px solid var(--line); }
+  .tab-btn.active {
+    background: var(--ink);
+    color: var(--paper);
+    font-weight: 500;
+  }
+
+  .form-area { padding: 24px 32px 36px; }
+  .form-panel { display: none; }
+  .form-panel.active { display: block; }
+
+  .field { margin-bottom: 18px; }
+  .field label {
+    display: block;
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+  .field .hint {
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    margin-top: 5px;
+  }
+  .field input, .field select {
+    width: 100%;
+    padding: 11px 12px;
+    font-size: 15px;
+    font-family: inherit;
+    border: 1px solid var(--line);
+    background: var(--paper-2);
+    color: var(--ink);
+    border-radius: 2px;
+  }
+  .field input:focus, .field select:focus, button:focus-visible {
+    outline: 2px solid var(--seal-soft);
+    outline-offset: 1px;
+  }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .req { color: var(--seal); }
+  .autocomplete-field { position: relative; }
+  .ac-list {
+    display: none;
+    position: absolute;
+    left: 0; right: 0; top: 100%;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-top: none;
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 20;
+  }
+  .ac-list.show { display: block; }
+  .ac-item {
+    padding: 10px 12px;
+    font-size: 13.5px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--line);
+  }
+  .ac-item:last-child { border-bottom: none; }
+  .ac-item:hover, .ac-item.active {
+    background: var(--paper-2);
+  }
+  .ac-empty {
+    padding: 10px 12px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+
+  .run-btn {
+    width: 100%;
+    padding: 13px;
+    margin-top: 4px;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 2px;
+    font-family: inherit;
+  }
+  .run-btn:active { transform: translateY(1px); }
+
+  .result { padding: 0 32px 50px; display: none; }
+  .result-head {
+    padding: 56px 0 28px;
+    margin-bottom: 30px;
+    text-align: center;
+    border-top: 2px solid var(--ink);
+  }
+  .result-head .kicker-2 {
+    font-size: 12px;
+    color: var(--ink-soft);
+    letter-spacing: 0.04em;
+    margin-top: 20px;
+    margin-bottom: 8px;
+  }
+  .result-head h2.section-title {
+    font-family: "Fraunces", serif;
+    font-size: 26px;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .hook {
+    background: var(--paper-2);
+    border: 1px solid var(--line);
+    padding: 14px 16px;
+    margin-bottom: 22px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .hook .hook-num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .hook .hook-text {
+    font-size: 13px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+  }
+
+  .score-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding-bottom: 22px;
+    border-bottom: 1px dashed var(--line);
+    margin-bottom: 22px;
+  }
+  .seal {
+    flex: 0 0 auto;
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    border: 3px solid var(--seal);
+    color: var(--seal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    transform: rotate(-6deg);
+  }
+  .seal .num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .seal .lbl { font-size: 10px; margin-top: 2px; }
+  .score-desc h2 {
+    font-family: "Fraunces", serif;
+    font-size: 18px;
+    margin: 0 0 4px;
+    font-weight: 600;
+  }
+  .score-desc p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+  }
+
+  .metrics { display: grid; gap: 14px; margin-bottom: 26px; }
+  .metric-row {
+    display: grid;
+    grid-template-columns: 112px 1fr 52px;
+    align-items: center;
+    gap: 10px;
+  }
+  .metric-row .m-label {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+  .m-tag {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 9.5px;
+    padding: 1px 5px;
+    border: 1px solid var(--line);
+    color: var(--ink-soft);
+    vertical-align: middle;
+  }
+  .m-tag-real {
+    border-color: var(--good);
+    color: var(--good);
+  }
+  .bar-track {
+    height: 8px;
+    background: var(--paper-2);
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .bar-fill { height: 100%; }
+  .metric-row .m-val {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    text-align: right;
+    color: var(--ink);
+  }
+
+  .insight {
+    background: var(--paper-2);
+    border-left: 3px solid var(--seal);
+    padding: 14px 16px;
+    font-size: 13.5px;
+    line-height: 1.6;
+    margin-bottom: 26px;
+  }
+
+  .premium { position: relative; border: 1px solid var(--line); padding: 18px 18px 20px; }
+  .premium h3 {
+    font-family: "Fraunces", serif;
+    font-size: 15px;
+    margin: 0 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .premium .premium-teaser {
+    font-size: 13px;
+    color: var(--seal);
+    font-weight: 500;
+    margin: 0 0 12px;
+  }
+  .premium ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    line-height: 2;
+    filter: blur(3.5px);
+    user-select: none;
+    pointer-events: none;
+  }
+  .lock-cta {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .lock-cta .price { font-size: 12.5px; color: var(--ink-soft); }
+  .lock-cta button {
+    background: var(--seal);
+    color: #fff;
+    border: none;
+    padding: 10px 16px;
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 2px;
+    font-family: inherit;
+  }
+  .foot-note {
+    margin-top: 22px;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    line-height: 1.6;
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="head">
+    <div class="kicker">OFFLINE F&amp;B DIAGNOSIS · 프로토타입</div>
+    <h1>상권 진단서</h1>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tabBtnIdea" onclick="switchTab('idea')">내 아이디어 검증</button>
+    <button class="tab-btn" id="tabBtnFranchise" onclick="switchTab('franchise')">프랜차이즈 손익 비교</button>
+  </div>
+
+  <div class="form-area">
+    <!-- 아이디어 검증 탭 -->
+    <div class="form-panel active" id="panelIdea">
+      <div class="field autocomplete-field">
+        <label for="ideaRegion">지역 검색 <span class="req">*</span></label>
+        <input id="ideaRegion" type="text" autocomplete="off" placeholder="예: 용인시 기흥구 동백동" oninput="onRegionInput('idea')">
+        <div class="ac-list" id="ideaRegionList"></div>
+        <div class="hint">목록에서 지역을 선택해야 진단할 수 있어</div>
+      </div>
+      <div class="field">
+        <label for="ideaBiz">업종</label>
+        <select id="ideaBiz">
+          <option value="한식">한식</option>
+          <option value="중식">중식</option>
+          <option value="일식">일식</option>
+          <option value="카페/디저트">카페 · 디저트</option>
+          <option value="치킨/주점">치킨 · 주점</option>
+          <option value="분식">분식</option>
+          <option value="양식">양식</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="ideaName">내 아이디어 / 시그니처 메뉴</label>
+        <input id="ideaName" type="text" autocomplete="off" placeholder="예: 치즈탕수육">
+        <div class="hint">기존 메뉴에 얹을 나만의 아이템을 적어봐</div>
+      </div>
+      <button class="run-btn" onclick="runIdea()">무료 진단하기</button>
+    </div>
+
+    <!-- 프랜차이즈 비교 탭 -->
+    <div class="form-panel" id="panelFranchise">
+      <div class="field">
+        <label for="franName">프랜차이즈 브랜드명</label>
+        <input id="franName" type="text" autocomplete="off" placeholder="예: OO치킨">
+      </div>
+      <div class="field autocomplete-field">
+        <label for="franRegion">지역 검색 <span class="req">*</span></label>
+        <input id="franRegion" type="text" autocomplete="off" placeholder="예: 용인시 기흥구 동백동" oninput="onRegionInput('fran')">
+        <div class="ac-list" id="franRegionList"></div>
+        <div class="hint">목록에서 지역을 선택해야 진단할 수 있어</div>
+      </div>
+      <button class="run-btn" onclick="runFranchise()">무료 진단하기</button>
+    </div>
+  </div>
+
+  <div class="result" id="result">
+    <div class="result-head">
+      <div class="kicker-2">DIAGNOSIS RESULT</div>
+      <h2 class="section-title" id="resultTitle">진단 결과</h2>
+    </div>
+
+    <div class="hook" id="hook" style="display:none;">
+      <div class="hook-num" id="hookNum"></div>
+      <div class="hook-text" id="hookText"></div>
+    </div>
+
+    <div class="score-row">
+      <div class="seal">
+        <div class="num" id="scoreNum">0</div>
+        <div class="lbl">POINT</div>
+      </div>
+      <div class="score-desc">
+        <h2 id="scoreTitle">-</h2>
+        <p id="scoreSub">-</p>
+      </div>
+    </div>
+
+    <div class="metrics" id="metrics"></div>
+
+    <div class="insight" id="insight"></div>
+
+    <div class="premium">
+      <h3>🔒 상세 리포트 (유료)</h3>
+      <div class="premium-teaser" id="premiumTeaser"></div>
+      <ul id="premiumList"></ul>
+      <div class="lock-cta">
+        <span class="price">1회 발급 · 9,900원</span>
+        <button onclick="alert('데모 버전입니다. 실제 서비스에서는 결제 후 상세 리포트가 발급됩니다.')">상세 리포트 보기</button>
+      </div>
+    </div>
+
+    <div class="foot-note">
+      본 진단은 데모용 샘플 로직으로 산출된 결과이며 실제 상권·매출 데이터가 아닙니다. 실서비스에서는 공공데이터 및 실측 자료 기반으로 산출 예정입니다. 창업 의사결정의 참고 자료일 뿐, 결과에 대한 책임은 지지 않습니다.
+    </div>
+  </div>
+</div>
+
+<script>
+function hashStr(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return Math.abs(h);
+}
+function seededRandom(seed) {
+  let x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
+function grade(v) {
+  if (v >= 70) return { word: "양호", color: "var(--good)" };
+  if (v >= 45) return { word: "보통", color: "var(--mid)" };
+  return { word: "주의", color: "var(--bad)" };
+}
+function barColorFor(val, higherBetter, goodTh, midTh) {
+  if (higherBetter) return val >= goodTh ? "var(--good)" : val >= midTh ? "var(--mid)" : "var(--bad)";
+  return val <= goodTh ? "var(--good)" : val <= midTh ? "var(--mid)" : "var(--bad)";
+}
+function renderMetrics(metrics) {
+  const metricsEl = document.getElementById('metrics');
+  metricsEl.innerHTML = "";
+  metrics.forEach((m, i) => {
+    const max = m.max || 100;
+    const pct = Math.min(100, (m.val / max) * 100);
+    const barColor = barColorFor(m.val, m.higherBetter, m.goodTh, m.midTh);
+    const row = document.createElement('div');
+    row.className = "metric-row";
+    row.id = "metric-row-" + i;
+    row.dataset.max = max;
+    row.dataset.higherBetter = m.higherBetter;
+    row.dataset.goodTh = m.goodTh;
+    row.dataset.midTh = m.midTh;
+    row.innerHTML = `
+      <div class="m-label">${m.label}<span class="m-tag">${m.tag || '추정'}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:${barColor};"></div></div>
+      <div class="m-val">${m.val}${m.unit}</div>
+    `;
+    metricsEl.appendChild(row);
+  });
+}
+
+// 실제 API 결과로 특정 지표 행을 갱신 (성공 시에만 호출)
+function updateMetricRow(index, { label, val, unit, tag }) {
+  const row = document.getElementById('metric-row-' + index);
+  if (!row) return;
+  const max = Number(row.dataset.max || 100);
+  const higherBetter = row.dataset.higherBetter === 'true';
+  const goodTh = Number(row.dataset.goodTh);
+  const midTh = Number(row.dataset.midTh);
+  const pct = Math.min(100, (val / max) * 100);
+  const barColor = barColorFor(val, higherBetter, goodTh, midTh);
+  row.innerHTML = `
+    <div class="m-label">${label}<span class="m-tag m-tag-real">${tag || '실데이터'}</span></div>
+    <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:${barColor};"></div></div>
+    <div class="m-val">${val}${unit}</div>
+  `;
+}
+
+// 지역+업종 기준 실제 동일업종 매장 수를 서버(API)에서 가져와 지표를 갱신한다.
+// 실패해도 화면은 그대로 두고 조용히 넘어간다 (추정치가 이미 표시되어 있으므로).
+async function enhanceWithRealDensity(adongCd, biz, metricIndex) {
+  try {
+    if (!adongCd) return;
+    const diagRes = await fetch(`/api/diagnose?adongCd=${adongCd}&biz=${encodeURIComponent(biz)}`);
+    const diag = await diagRes.json();
+    if (!diagRes.ok || typeof diag.storeCount !== 'number') return;
+
+    updateMetricRow(metricIndex, {
+      label: "동일업종 매장 수",
+      val: diag.storeCount,
+      unit: "개",
+      tag: "실데이터"
+    });
+  } catch (e) {
+    // API 서버 오류/네트워크 문제 — 추정치 그대로 둠
+  }
+}
+function showResult() {
+  document.getElementById('result').classList.add('show');
+  document.getElementById('result').style.display = 'block';
+  document.querySelector('.result-head').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function switchTab(tab) {
+  document.getElementById('panelIdea').classList.toggle('active', tab === 'idea');
+  document.getElementById('panelFranchise').classList.toggle('active', tab === 'franchise');
+  document.getElementById('tabBtnIdea').classList.toggle('active', tab === 'idea');
+  document.getElementById('tabBtnFranchise').classList.toggle('active', tab === 'franchise');
+  document.getElementById('result').style.display = 'none';
+}
+
+// ===== 지역 자동완성 =====
+// 탭별로 선택된 지역 정보를 저장 (선택 안 하면 adongCd가 없어서 검증에 걸림)
+const regionState = {
+  idea: { adongCd: null, label: "" },
+  fran: { adongCd: null, label: "" }
+};
+let acDebounceTimer = null;
+
+function onRegionInput(tabKey) {
+  const input = document.getElementById(tabKey + 'Region');
+  const listEl = document.getElementById(tabKey + 'RegionList');
+
+  // 타이핑 중이면 이전 선택은 무효화 (다시 선택해야 진단 가능)
+  regionState[tabKey].adongCd = null;
+  regionState[tabKey].label = "";
+
+  clearTimeout(acDebounceTimer);
+  const q = input.value.trim();
+  if (q.length < 2) {
+    listEl.classList.remove('show');
+    listEl.innerHTML = "";
+    return;
+  }
+
+  acDebounceTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`/api/suggest?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      renderSuggestions(tabKey, data.results || []);
+    } catch (e) {
+      // 서버 오류 시 자동완성만 조용히 실패 (수동 진행은 검증에서 막힘)
+      listEl.classList.remove('show');
+    }
+  }, 250);
+}
+
+function renderSuggestions(tabKey, results) {
+  const listEl = document.getElementById(tabKey + 'RegionList');
+  if (results.length === 0) {
+    listEl.innerHTML = `<div class="ac-empty">일치하는 지역이 없어요</div>`;
+    listEl.classList.add('show');
+    return;
+  }
+  listEl.innerHTML = results.map((r, i) =>
+    `<div class="ac-item" data-idx="${i}">${r.label}</div>`
+  ).join('');
+  listEl.classList.add('show');
+
+  listEl.querySelectorAll('.ac-item').forEach((el, i) => {
+    el.addEventListener('click', () => selectRegion(tabKey, results[i]));
+  });
+}
+
+function selectRegion(tabKey, region) {
+  regionState[tabKey].adongCd = region.adongCd;
+  regionState[tabKey].label = region.label;
+  document.getElementById(tabKey + 'Region').value = region.label;
+  const listEl = document.getElementById(tabKey + 'RegionList');
+  listEl.classList.remove('show');
+  listEl.innerHTML = "";
+}
+
+// 자동완성 목록 바깥 클릭하면 닫기
+document.addEventListener('click', (e) => {
+  ['idea', 'fran'].forEach((tabKey) => {
+    const field = document.getElementById(tabKey + 'Region')?.closest('.autocomplete-field');
+    if (field && !field.contains(e.target)) {
+      document.getElementById(tabKey + 'RegionList')?.classList.remove('show');
+    }
+  });
+});
+
+const bizBaseline = {
+  "한식": 62, "중식": 58, "일식": 55, "카페/디저트": 50,
+  "치킨/주점": 52, "분식": 60, "양식": 48
+};
+
+function runIdea() {
+  if (!regionState.idea.adongCd) {
+    alert("지역을 목록에서 선택해주세요.");
+    document.getElementById('ideaRegion').focus();
+    return;
+  }
+  const loc = regionState.idea.label;
+  const adongCd = regionState.idea.adongCd;
+  const biz = document.getElementById('ideaBiz').value;
+  const item = document.getElementById('ideaName').value.trim() || "이 아이템";
+
+  const seed = hashStr(loc + "|" + biz + "|" + item);
+  const base = bizBaseline[biz] || 55;
+  const variance = Math.floor(seededRandom(seed) * 30) - 15;
+  const score = Math.max(12, Math.min(96, base + variance));
+
+  const buzz = Math.floor(seededRandom(seed * 1.4) * 140) - 20; // 관심도 증감 %, 음수 가능
+  const similarCount = Math.floor(seededRandom(seed * 2.1) * 12); // 유사 컨셉 경쟁업체 수
+  const entryDifficulty = Math.floor(seededRandom(seed * 3.3) * 90) + 5; // 진입난이도 %
+
+  document.getElementById('resultTitle').textContent = "진단 결과";
+  document.getElementById('hook').style.display = 'flex';
+  document.getElementById('hookNum').textContent = (buzz >= 0 ? "+" : "") + buzz + "%";
+  document.getElementById('hookNum').style.color = buzz >= 0 ? "var(--good)" : "var(--bad)";
+  document.getElementById('hookText').textContent =
+    buzz >= 0
+      ? `최근 3개월 "${item}" 관련 관심도 지수 변화 — 비슷한 컨셉을 찾는 사람이 늘고 있어요.`
+      : `최근 3개월 "${item}" 관련 관심도 지수 변화 — 트렌드가 주춤한 시기일 수 있어요.`;
+
+  document.getElementById('scoreNum').textContent = score;
+  document.getElementById('scoreTitle').textContent = `${loc} · ${biz} · "${item}"`;
+  document.getElementById('scoreSub').textContent =
+    score >= 70 ? "지금 상권·업종 대비 시도해볼 만한 아이템 조합입니다."
+    : score >= 45 ? "조건부로 검토해볼 만한 아이템 조합입니다."
+    : "리스크 요인이 상대적으로 많은 조합입니다.";
+
+  renderMetrics([
+    { label: "관심도 지수", val: Math.max(0, 50 + Math.floor(buzz/2)), unit: "점", higherBetter: true, goodTh: 60, midTh: 35, tag: "추정" },
+    { label: "유사 컨셉 매장", val: similarCount, unit: "개", higherBetter: false, max: 15, goodTh: 4, midTh: 8, tag: "추정" },
+    { label: "진입 난이도", val: entryDifficulty, unit: "%", higherBetter: false, goodTh: 35, midTh: 60, tag: "추정" }
+  ]);
+
+  // 실제 선택된 행정동 코드로 바로 조회 (텍스트 매칭 없음 — 자동완성으로 이미 확정된 값)
+  enhanceWithRealDensity(adongCd, biz, 1);
+
+  document.getElementById('insight').textContent =
+    `${loc} 인근에서 "${item}"과(와) 겹치는 컨셉 매장은 약 ${similarCount}곳으로 ${similarCount <= 4 ? "아직 희소한 편" : "이미 여럿 시도된 편"}입니다. 진입 난이도는 ${entryDifficulty}%로 ${entryDifficulty > 60 ? "메뉴 구성이나 가격 전략을 세밀하게 짜야" : "비교적 수월하게 진입할 수 있을 것"}으로 보입니다.`;
+
+  document.getElementById('premiumTeaser').textContent = `"${item}" 하나 추가하면 객단가·마진이 얼마나 바뀔까?`;
+  document.getElementById('premiumList').innerHTML = `
+    <li>"${item}" 예상 원가율 및 추천 판매가</li>
+    <li>기존 메뉴 대비 객단가 상승폭 예측</li>
+    <li>월 예상 판매량 및 손익분기 판매개수</li>
+    <li>비슷한 컨셉으로 성공/실패한 실제 사례</li>
+  `;
+
+  showResult();
+}
+
+function runFranchise() {
+  if (!regionState.fran.adongCd) {
+    alert("지역을 목록에서 선택해주세요.");
+    document.getElementById('franRegion').focus();
+    return;
+  }
+  const brand = document.getElementById('franName').value.trim() || "미입력 브랜드";
+  const loc = regionState.fran.label;
+
+  const seed = hashStr(brand + "|" + loc);
+  const score = Math.max(15, Math.min(95, 45 + Math.floor(seededRandom(seed) * 45)));
+
+  const investRange = 3000 + Math.floor(seededRandom(seed * 1.6) * 7000); // 만원 단위, 초기투자금 대략치
+  const sameBrandNearby = Math.floor(seededRandom(seed * 2.4) * 6); // 인근 동일 브랜드 매장 수
+  const royaltyBurden = Math.floor(seededRandom(seed * 3.8) * 12) + 3; // 로열티+광고분담금 %
+
+  document.getElementById('resultTitle').textContent = "진단 결과";
+  document.getElementById('hook').style.display = 'flex';
+  document.getElementById('hookNum').textContent = "약 " + investRange.toLocaleString() + "만원";
+  document.getElementById('hookNum').style.color = "var(--ink)";
+  document.getElementById('hookText').textContent =
+    `"${brand}" 가맹 시 ${loc} 기준 예상 초기 투자금 범위예요. (가맹비·보증금·인테리어 포함 추정치)`;
+
+  document.getElementById('scoreNum').textContent = score;
+  document.getElementById('scoreTitle').textContent = `${loc} · "${brand}" 가맹`;
+  document.getElementById('scoreSub').textContent =
+    score >= 70 ? "지금 상권 기준으로는 검토해볼 만한 가맹 조건입니다."
+    : score >= 45 ? "조건부로 검토해볼 만한 가맹 조합입니다."
+    : "신중한 검토가 필요한 조합입니다.";
+
+  renderMetrics([
+    { label: "초기 투자금", val: investRange, unit: "만원", higherBetter: false, max: 10000, goodTh: 5000, midTh: 8000, tag: "추정" },
+    { label: "인근 동일 브랜드", val: sameBrandNearby, unit: "개", higherBetter: false, max: 8, goodTh: 2, midTh: 4, tag: "추정" },
+    { label: "로열티·광고분담금", val: royaltyBurden, unit: "%", higherBetter: false, max: 15, goodTh: 6, midTh: 9, tag: "추정" }
+  ]);
+
+  document.getElementById('insight').textContent =
+    `${loc} 인근에는 "${brand}" 매장이 이미 ${sameBrandNearby}곳 있어 ${sameBrandNearby >= 3 ? "상권 내 자기잠식 우려가 있는 편" : "아직 포화 상태는 아닌 편"}입니다. 로열티·광고분담금 비중은 매출의 약 ${royaltyBurden}%로, ${royaltyBurden > 9 ? "본사 수수료 부담이 큰 편이라 순이익률을 꼼꼼히 따져봐야" : "비교적 합리적인 수준"}합니다.`;
+
+  document.getElementById('premiumTeaser').textContent = `"${brand}" 가맹, 진짜 순이익은 얼마 남을까?`;
+  document.getElementById('premiumList').innerHTML = `
+    <li>예상 월 순이익률 및 투자금 회수 기간</li>
+    <li>로열티·광고분담금 제외 실수령액 시뮬레이션</li>
+    <li>인근 동일 브랜드 실제 폐업 사례</li>
+    <li>본사 발표 평균매출 대비 실제 체감치 비교</li>
+  `;
+
+  showResult();
+}
+</script>
+</body>
+</html>

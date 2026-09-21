@@ -1,0 +1,102 @@
+// 공통 유틸: 소상공인시장진흥공단 상권정보 API 호출 헬퍼
+// 문서: https://data.go.kr/data/15012005/openapi.do
+
+const BASE = "https://apis.data.go.kr/B553077/api/open/sdsc2";
+
+function norm(s) {
+  return (s || "").replace(/\s+/g, "");
+}
+
+// 행정동 전체 목록 (시도/시군구/행정동 코드+명칭)을 가져온다.
+// 이 API는 pageNo/numOfRows 파라미터가 없고 전국 목록을 한 번에 반환한다.
+// 서버리스 특성상 매 요청마다 다시 받아오지만(캐시 없음), 데모 트래픽 수준에서는 문제없다.
+// 트래픽이 늘면 이 결과를 별도 캐시(예: Vercel KV, 파일)에 저장해 재사용하는 걸 권장.
+export async function fetchDongList(serviceKey) {
+  const url = `${BASE}/baroApi?serviceKey=${serviceKey}&resId=dong&catId=admi&type=json`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`baroApi 호출 실패: ${res.status}`);
+  const data = await res.json();
+
+  // 실제 응답 구조는 배포 후 1회 확인이 필요합니다.
+  // 통상 data.go.kr 포맷은 response.body.items.item 형태이며,
+  // 결과가 1건일 때 item이 배열이 아니라 객체로 오는 경우가 있어 배열로 통일합니다.
+  const items = data?.response?.body?.items?.item ?? [];
+  return Array.isArray(items) ? items : [items];
+}
+
+// 시군구+동 텍스트를 받아 가장 그럴듯한 행정동 코드(adongCd)를 찾는다.
+// 정확한 지오코딩이 아니라 텍스트 포함 매칭이라 완벽하지 않을 수 있음 (동명 지역 등).
+// "동백동" 입력 시 실제 행정동명이 "동백1동/동백2동/동백3동"으로 쪼개진 경우가 많아
+// 숫자를 제거하고 비교한다.
+function stripNum(s) {
+  return norm(s).replace(/[0-9]/g, "");
+}
+
+export function matchDong(list, cityText, dongText) {
+  const city = norm(cityText);
+  const dongClean = stripNum(dongText);
+
+  const candidates = list.filter((it) => {
+    const full = norm((it.ctprvnNm || "") + (it.signguNm || ""));
+    const dongNmClean = stripNum(it.adongNm || "");
+    const cityOk = !city || full.includes(city) || city.includes(norm(it.signguNm || ""));
+    const dongOk = !dongClean || dongNmClean.includes(dongClean) || dongClean.includes(dongNmClean);
+    return cityOk && dongOk;
+  });
+
+  return candidates; // 여러 개면 동명 지역 또는 동백1/2/3동처럼 쪼개진 경우 — 호출부에서 처리
+}
+
+// 자동완성용: 사용자가 타이핑하는 중간에 부분 일치하는 행정동 후보를 찾는다.
+// "용인시 기흥구 동백" 처럼 입력해도 도중에 매칭되도록 전체 결합 문자열에서 검색.
+export function suggestDong(list, query, limit = 8) {
+  const q = norm(query);
+  if (!q) return [];
+  const results = [];
+  for (const it of list) {
+    const combined = norm(`${it.ctprvnNm || ""}${it.signguNm || ""}${it.adongNm || ""}`);
+    if (combined.includes(q)) {
+      results.push({
+        label: `${it.ctprvnNm} ${it.signguNm} ${it.adongNm}`,
+        ctprvnCd: it.ctprvnCd,
+        signguCd: it.signguCd,
+        adongCd: it.adongCd,
+      });
+      if (results.length >= limit) break;
+    }
+  }
+  return results;
+}
+
+// 업종 대/중/소분류 코드 목록 조회 후, 한글 업종명으로 코드를 찾는다.
+export async function findUpjongCode(serviceKey, level, keyword) {
+  const endpoint =
+    level === "large" ? "largeUpjongList" : level === "middle" ? "middleUpjongList" : "smallUpjongList";
+  const url = `${BASE}/${endpoint}?serviceKey=${serviceKey}&type=json`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${endpoint} 호출 실패: ${res.status}`);
+  const data = await res.json();
+  const items = data?.response?.body?.items?.item ?? [];
+  const arr = Array.isArray(items) ? items : [items];
+  // 필드명(예: indsLclsCd/indsLclsNm 등)은 배포 후 실제 응답으로 1회 확인 필요
+  return arr.filter((it) => Object.values(it).some((v) => String(v).includes(keyword)));
+}
+
+// 특정 행정동+업종 조건의 상가업소 개수를 구한다 (업종 밀집도용 실데이터).
+export async function countStoresInDong(serviceKey, adongCd, upjongParam) {
+  const params = new URLSearchParams({
+    serviceKey,
+    pageNo: "1",
+    numOfRows: "1", // 목록 자체는 필요 없고 totalCount만 필요
+    divId: "adongCd",
+    key: adongCd,
+    type: "json",
+    ...upjongParam, // { indsMclsCd: 'xxxx' } 등
+  });
+  const url = `${BASE}/storeListInDong?${params.toString()}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`storeListInDong 호출 실패: ${res.status}`);
+  const data = await res.json();
+  // totalCount 위치도 배포 후 실제 응답으로 확인 필요 (body.totalCount 가정)
+  return Number(data?.response?.body?.totalCount ?? 0);
+}
