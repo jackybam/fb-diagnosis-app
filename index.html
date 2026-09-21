@@ -694,11 +694,15 @@ async function runIdea() {
   const densityLabel = isMajorLevel ? `${bizMajor} 업종 포화도` : "업종 포화도";
   const densityTag = !density ? "추정" : isMajorLevel ? "실데이터(대분류 기준)" : "실데이터";
 
-  // 관심도 지수: 실데이터(구간 내 상대 수준) 있으면 그걸로
+  // 관심도 지수: 실데이터(구간 내 상대 수준) 있으면 그걸로.
+  // ref랑 비교됐으면 단위를 "점"이 아니라 "%"로 바꿔서 "OO 대비 몇 %"라는 걸 바로 알 수 있게 함
+  // (안 그러면 "0.3점" 같은 숫자가 버그처럼 보임 — 실은 "한식 전체 검색량의 0.3%"라는 뜻).
   const mockBuzzPct = Math.floor(seededRandom(seed * 1.4) * 140) - 20;
   const changePct = buzz ? buzz.changePct : mockBuzzPct;
   const interestLevel = buzz ? buzz.latestRatio : Math.max(0, 50 + Math.floor(mockBuzzPct / 2));
   const interestTag = !buzz ? "추정" : buzz.comparedToRef ? `실데이터(${bizMajor} 대비)` : "실데이터";
+  const interestLabel = buzz?.comparedToRef ? `관심도 (${bizMajor} 검색량 대비)` : "관심도 지수";
+  const interestUnit = buzz?.comparedToRef ? "%" : "점";
 
   // 경쟁 강도(구 "진입 난이도"): 매장 수+관심도 둘 다 실데이터면 그 조합으로 계산한 "모델 기반 추정".
   // 매장이 많다/관심도가 높다 = 나쁘다는 뜻이 아니라 "경쟁이 치열한 상권"이라는 뜻일 뿐이라 중립 취급.
@@ -732,7 +736,7 @@ async function runIdea() {
     : "신중한 검토가 필요한 조합입니다.";
 
   renderMetrics([
-    { label: "관심도 지수", val: interestLevel, unit: "점", higherBetter: true, goodTh: 60, midTh: 35, tag: interestTag },
+    { label: interestLabel, val: interestLevel, unit: interestUnit, max: buzz?.comparedToRef ? 100 : undefined, neutral: true, tag: interestTag },
     { label: densityLabel, val: storeCount, unit: "개", max: 150, neutral: true, tag: densityTag },
     { label: "경쟁 강도", val: competitionIntensity, unit: "%", neutral: true, tag: competitionTag }
   ]);
