@@ -695,8 +695,9 @@ function populateBizSub(major) {
   const subs = BIZ_TAXONOMY[major] || [];
   const allValue = subs.join(","); // "전체" 선택 시 이 대분류의 세부업종을 다 합쳐서 조회
   subSel.innerHTML =
-    subs.map((s) => `<option value="${s}">${s}</option>`).join('') +
-    `<option value="${allValue.replace(/"/g, '&quot;')}">전체 (${major} 통틀어)</option>`;
+    `<option value="${allValue.replace(/"/g, '&quot;')}">— 전체 (${major}) —</option>` +
+    `<option disabled>──────────</option>` +
+    subs.map((s) => `<option value="${s}">${s}</option>`).join('');
 }
 function onBizMajorChange() {
   const major = document.getElementById('ideaBizMajor').value;
