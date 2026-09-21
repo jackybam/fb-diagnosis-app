@@ -478,7 +478,8 @@ function grade(v) {
   if (v >= 45) return { word: "보통", color: "var(--mid)" };
   return { word: "주의", color: "var(--bad)" };
 }
-function barColorFor(val, higherBetter, goodTh, midTh) {
+function barColorFor(val, higherBetter, goodTh, midTh, neutral) {
+  if (neutral) return "var(--mid)"; // 좋다/나쁘다 판정 안 하는 중립 지표 (예: 업종 포화도, 경쟁 강도)
   if (higherBetter) return val >= goodTh ? "var(--good)" : val >= midTh ? "var(--mid)" : "var(--bad)";
   return val <= goodTh ? "var(--good)" : val <= midTh ? "var(--mid)" : "var(--bad)";
 }
@@ -488,16 +489,12 @@ function renderMetrics(metrics) {
   metrics.forEach((m, i) => {
     const max = m.max || 100;
     const pct = Math.min(100, (m.val / max) * 100);
-    const barColor = barColorFor(m.val, m.higherBetter, m.goodTh, m.midTh);
+    const barColor = barColorFor(m.val, m.higherBetter, m.goodTh, m.midTh, m.neutral);
     const row = document.createElement('div');
     row.className = "metric-row";
     row.id = "metric-row-" + i;
-    row.dataset.max = max;
-    row.dataset.higherBetter = m.higherBetter;
-    row.dataset.goodTh = m.goodTh;
-    row.dataset.midTh = m.midTh;
     row.innerHTML = `
-      <div class="m-label">${m.label}<span class="m-tag">${m.tag || '추정'}</span></div>
+      <div class="m-label">${m.label}<span class="m-tag ${m.tag && m.tag.startsWith('실데이터') ? 'm-tag-real' : ''}">${m.tag || '추정'}</span></div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:${barColor};"></div></div>
       <div class="m-val">${m.val}${m.unit}</div>
     `;
@@ -505,74 +502,34 @@ function renderMetrics(metrics) {
   });
 }
 
-// 실제 API 결과로 특정 지표 행을 갱신 (성공 시에만 호출)
-function updateMetricRow(index, { label, val, unit, tag }) {
-  const row = document.getElementById('metric-row-' + index);
-  if (!row) return;
-  const max = Number(row.dataset.max || 100);
-  const higherBetter = row.dataset.higherBetter === 'true';
-  const goodTh = Number(row.dataset.goodTh);
-  const midTh = Number(row.dataset.midTh);
-  const pct = Math.min(100, (val / max) * 100);
-  const barColor = barColorFor(val, higherBetter, goodTh, midTh);
-  row.innerHTML = `
-    <div class="m-label">${label}<span class="m-tag m-tag-real">${tag || '실데이터'}</span></div>
-    <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:${barColor};"></div></div>
-    <div class="m-val">${val}${unit}</div>
-  `;
-}
-
 // 지역+업종 기준 실제 동일업종 매장 수를 서버(API)에서 가져와 지표를 갱신한다.
 // 실패해도 화면은 그대로 두고 조용히 넘어간다 (추정치가 이미 표시되어 있으므로).
 // 아이템명 기준 실제 검색어 트렌드로 상단 훅(관심도 지수)을 갱신한다.
-async function enhanceWithRealBuzz(item, metricIndex) {
+// 검색 트렌드 실데이터 조회 (DOM은 안 건드리고 결과만 반환 — 실패하면 null)
+async function fetchRealBuzz(item, bizMajor) {
   try {
-    const r = await fetch(`/api/trend?keyword=${encodeURIComponent(item)}`);
+    const r = await fetch(`/api/trend?keyword=${encodeURIComponent(item)}&ref=${encodeURIComponent(bizMajor)}`);
     const data = await r.json();
-    if (!r.ok || typeof data.changePct !== 'number') return;
-
-    const buzz = data.changePct;
-    document.getElementById('hookNum').textContent = (buzz >= 0 ? "+" : "") + buzz + "%";
-    document.getElementById('hookNum').style.color = buzz >= 0 ? "var(--good)" : "var(--bad)";
-    document.getElementById('hookText').innerHTML =
-      (buzz >= 0
-        ? `최근 3개월 "${item}" 관련 검색 관심도 변화 — 비슷한 컨셉을 찾는 사람이 늘고 있어요.`
-        : `최근 3개월 "${item}" 관련 검색 관심도 변화 — 트렌드가 주춤한 시기일 수 있어요.`) +
-      ` <span class="m-tag m-tag-real" style="margin-left:6px;">실데이터</span>`;
-
-    // 아래 "관심도 지수" 지표 행은 변화율이 아니라 "현재 절대적 관심 수준"(latestRatio)으로 갱신.
-    // 트렌드(위 훅, 오르내림)랑 관심도 수준(아래 지표, 지금 얼마나 관심 있나)은 서로 다른 정보라 분리함.
-    if (typeof metricIndex === 'number' && typeof data.latestRatio === 'number') {
-      updateMetricRow(metricIndex, {
-        label: "관심도 지수",
-        val: data.latestRatio,
-        unit: "점",
-        tag: "실데이터"
-      });
-    }
+    if (!r.ok || typeof data.changePct !== 'number' || typeof data.latestRatio !== 'number') return null;
+    return data;
   } catch (e) {
-    // 실패 시 추정치 그대로 둠
+    return null;
   }
 }
 
-async function enhanceWithRealDensity(adongCd, biz, bizMajor, metricIndex) {
+// 업종 포화도(매장 수) 실데이터 조회
+async function fetchRealDensity(adongCd, biz, bizMajor) {
   try {
-    if (!adongCd) return;
-    const diagRes = await fetch(`/api/diagnose?adongCd=${encodeURIComponent(adongCd)}&biz=${encodeURIComponent(biz)}&bizMajor=${encodeURIComponent(bizMajor)}`);
-    const diag = await diagRes.json();
-    if (!diagRes.ok || typeof diag.storeCount !== 'number') return;
-
-    const isMajorLevel = diag.matchLevel === 'major';
-    updateMetricRow(metricIndex, {
-      label: isMajorLevel ? `${bizMajor} 업종 포화도` : "업종 포화도",
-      val: diag.storeCount,
-      unit: "개",
-      tag: isMajorLevel ? "실데이터(대분류 기준)" : "실데이터"
-    });
+    if (!adongCd) return null;
+    const r = await fetch(`/api/diagnose?adongCd=${encodeURIComponent(adongCd)}&biz=${encodeURIComponent(biz)}&bizMajor=${encodeURIComponent(bizMajor)}`);
+    const data = await r.json();
+    if (!r.ok || typeof data.storeCount !== 'number') return null;
+    return data;
   } catch (e) {
-    // API 서버 오류/네트워크 문제 — 추정치 그대로 둠
+    return null;
   }
 }
+
 function showResult() {
   document.getElementById('result').classList.add('show');
   document.getElementById('result').style.display = 'block';
@@ -696,7 +653,7 @@ const bizBaseline = {
   "치킨/주점": 52, "분식": 60, "양식": 48
 };
 
-function runIdea() {
+async function runIdea() {
   if (!regionState.idea.adongCds) {
     alert("지역을 목록에서 선택해주세요.");
     document.getElementById('ideaRegion').focus();
@@ -714,18 +671,56 @@ function runIdea() {
   const variance = Math.floor(seededRandom(seed) * 30) - 15;
   const score = Math.max(12, Math.min(96, base + variance));
 
-  const buzz = Math.floor(seededRandom(seed * 1.4) * 140) - 20; // 관심도 증감 %, 음수 가능
-  const similarCount = Math.floor(seededRandom(seed * 2.1) * 12); // 유사 컨셉 경쟁업체 수
-  const entryDifficulty = Math.floor(seededRandom(seed * 3.3) * 90) + 5; // 진입난이도 %
+  // 진단 중 로딩 상태로 전환 (실데이터 두 개를 먼저 다 받은 다음 한 번에 보여줌 —
+  // 추정치가 잠깐 보였다가 실데이터로 바뀌면서 깜빡이는 것보다 이게 덜 혼란스러움)
+  const btn = document.querySelector('#panelIdea .run-btn');
+  const originalBtnText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "진단 중...";
+
+  const [density, buzz] = await Promise.all([
+    fetchRealDensity(adongCd, biz, bizMajor),
+    fetchRealBuzz(item, bizMajor),
+  ]);
+
+  btn.disabled = false;
+  btn.textContent = originalBtnText;
+
+  // 업종 포화도: 실데이터 있으면 그걸로, 없으면 추정치로 대체
+  const mockStoreCount = Math.floor(seededRandom(seed * 2.1) * 12);
+  const storeCount = density ? density.storeCount : mockStoreCount;
+  const isMajorLevel = density?.matchLevel === 'major';
+  const densityLabel = isMajorLevel ? `${bizMajor} 업종 포화도` : "업종 포화도";
+  const densityTag = !density ? "추정" : isMajorLevel ? "실데이터(대분류 기준)" : "실데이터";
+
+  // 관심도 지수: 실데이터(구간 내 상대 수준) 있으면 그걸로
+  const mockBuzzPct = Math.floor(seededRandom(seed * 1.4) * 140) - 20;
+  const changePct = buzz ? buzz.changePct : mockBuzzPct;
+  const interestLevel = buzz ? buzz.latestRatio : Math.max(0, 50 + Math.floor(mockBuzzPct / 2));
+  const interestTag = !buzz ? "추정" : buzz.comparedToRef ? `실데이터(${bizMajor} 대비)` : "실데이터";
+
+  // 경쟁 강도(구 "진입 난이도"): 매장 수+관심도 둘 다 실데이터면 그 조합으로 계산한 "모델 기반 추정".
+  // 매장이 많다/관심도가 높다 = 나쁘다는 뜻이 아니라 "경쟁이 치열한 상권"이라는 뜻일 뿐이라 중립 취급.
+  let competitionIntensity, competitionTag;
+  if (density && buzz) {
+    const saturationScore = Math.min(100, (storeCount / 150) * 100);
+    competitionIntensity = Math.round(saturationScore * 0.6 + interestLevel * 0.4);
+    competitionTag = "추정(실데이터 기반 모델)";
+  } else {
+    competitionIntensity = Math.floor(seededRandom(seed * 3.3) * 90) + 5;
+    competitionTag = "추정";
+  }
 
   document.getElementById('resultTitle').textContent = "진단 결과";
   document.getElementById('hook').style.display = 'flex';
-  document.getElementById('hookNum').textContent = (buzz >= 0 ? "+" : "") + buzz + "%";
-  document.getElementById('hookNum').style.color = buzz >= 0 ? "var(--good)" : "var(--bad)";
-  document.getElementById('hookText').textContent =
-    buzz >= 0
-      ? `최근 3개월 "${item}" 관련 관심도 지수 변화 — 비슷한 컨셉을 찾는 사람이 늘고 있어요.`
-      : `최근 3개월 "${item}" 관련 관심도 지수 변화 — 트렌드가 주춤한 시기일 수 있어요.`;
+  document.getElementById('hookNum').textContent = (changePct >= 0 ? "+" : "") + changePct + "%";
+  document.getElementById('hookNum').style.color = changePct >= 0 ? "var(--good)" : "var(--bad)";
+  const refNote = buzz?.comparedToRef ? `${bizMajor} 검색량 대비 ` : '';
+  document.getElementById('hookText').innerHTML =
+    (changePct >= 0
+      ? `최근 3개월 "${item}" ${refNote}검색 관심도 변화 — 비슷한 컨셉을 찾는 사람이 늘고 있어요.`
+      : `최근 3개월 "${item}" ${refNote}검색 관심도 변화 — 트렌드가 주춤한 시기일 수 있어요.`) +
+    (buzz ? ` <span class="m-tag m-tag-real" style="margin-left:6px;">실데이터</span>` : '');
 
   document.getElementById('scoreNum').textContent = score;
   document.getElementById('scoreTitle').textContent =
@@ -733,24 +728,22 @@ function runIdea() {
   document.getElementById('scoreSub').textContent =
     score >= 70 ? "지금 상권·업종 대비 시도해볼 만한 아이템 조합입니다."
     : score >= 45 ? "조건부로 검토해볼 만한 아이템 조합입니다."
-    : "리스크 요인이 상대적으로 많은 조합입니다.";
+    : "신중한 검토가 필요한 조합입니다.";
 
   renderMetrics([
-    { label: "관심도 지수", val: Math.max(0, 50 + Math.floor(buzz/2)), unit: "점", higherBetter: true, goodTh: 60, midTh: 35, tag: "추정" },
-    { label: "업종 포화도", val: similarCount, unit: "개", higherBetter: false, max: 15, goodTh: 4, midTh: 8, tag: "추정" },
-    { label: "진입 난이도", val: entryDifficulty, unit: "%", higherBetter: false, goodTh: 35, midTh: 60, tag: "추정" }
+    { label: "관심도 지수", val: interestLevel, unit: "점", higherBetter: true, goodTh: 60, midTh: 35, tag: interestTag },
+    { label: densityLabel, val: storeCount, unit: "개", max: 150, neutral: true, tag: densityTag },
+    { label: "경쟁 강도", val: competitionIntensity, unit: "%", neutral: true, tag: competitionTag }
   ]);
 
-  // 실제 선택된 행정동 코드로 바로 조회 (텍스트 매칭 없음 — 자동완성으로 이미 확정된 값)
-  // 세부업종이 안 잡히면 서버가 대분류로 넓혀서 재시도함
-  enhanceWithRealDensity(adongCd, biz, bizMajor, 1);
-  // 아이템명 기준 실제 검색 트렌드로 상단 훅 교체 시도
-  enhanceWithRealBuzz(item, 0);
-
+  // 무료 정보만으론 "이게 위험 신호인지 검증된 상권인지" 판단이 안 된다는 걸 숨기지 않고 그대로 말함
   document.getElementById('insight').textContent =
-    `${loc} 인근에서 "${item}"과(와) 겹치는 컨셉 매장은 약 ${similarCount}곳으로 ${similarCount <= 4 ? "아직 희소한 편" : "이미 여럿 시도된 편"}입니다. 진입 난이도는 ${entryDifficulty}%로 ${entryDifficulty > 60 ? "메뉴 구성이나 가격 전략을 세밀하게 짜야" : "비교적 수월하게 진입할 수 있을 것"}으로 보입니다.`;
+    `${loc} 인근에 "${item}"과(와) 같은 카테고리로 분류되는 매장이 ${storeCount}곳 있습니다. ` +
+    `이게 이미 과포화된 위험 신호인지, 오히려 수요가 검증된 상권이라는 신호인지는 이 숫자만으론 판단하기 어렵습니다. ` +
+    `검색 관심도는 최근 ${changePct >= 0 ? '상승' : '하락'} 추세(${changePct}%)입니다.`;
 
-  document.getElementById('premiumTeaser').textContent = `"${item}" 하나 추가하면 객단가·마진이 얼마나 바뀔까?`;
+  document.getElementById('premiumTeaser').textContent =
+    `"${item}", 매장 ${storeCount}곳이 위험 신호인지 검증된 상권 신호인지 정확히 알려드립니다.`;
   document.getElementById('premiumList').innerHTML = `
     <li>"${item}" 예상 원가율 및 추천 판매가</li>
     <li>기존 메뉴 대비 객단가 상승폭 예측</li>
