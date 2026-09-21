@@ -17,10 +17,9 @@ export async function fetchDongList(serviceKey) {
   if (!res.ok) throw new Error(`baroApi 호출 실패: ${res.status}`);
   const data = await res.json();
 
-  // 실제 응답 구조는 배포 후 1회 확인이 필요합니다.
-  // 통상 data.go.kr 포맷은 response.body.items.item 형태이며,
-  // 결과가 1건일 때 item이 배열이 아니라 객체로 오는 경우가 있어 배열로 통일합니다.
-  const items = data?.response?.body?.items?.item ?? [];
+  // 실제 응답 구조 확인 결과: response.body.items 가 바로 배열임 (item으로 한 번 더
+  // 감싸져 있지 않음). 혹시 결과가 1건일 때 객체로 오는 경우까지 대비해 배열로 통일.
+  const items = data?.response?.body?.items ?? [];
   return Array.isArray(items) ? items : [items];
 }
 
@@ -76,7 +75,7 @@ export async function findUpjongCode(serviceKey, level, keyword) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${endpoint} 호출 실패: ${res.status}`);
   const data = await res.json();
-  const items = data?.response?.body?.items?.item ?? [];
+  const items = data?.response?.body?.items ?? [];
   const arr = Array.isArray(items) ? items : [items];
   // 필드명(예: indsLclsCd/indsLclsNm 등)은 배포 후 실제 응답으로 1회 확인 필요
   return arr.filter((it) => Object.values(it).some((v) => String(v).includes(keyword)));
