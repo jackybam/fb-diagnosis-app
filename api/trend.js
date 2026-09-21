@@ -59,12 +59,24 @@ export default async function handler(req, res) {
     const last = itemSeries[itemSeries.length - 1]?.ratio ?? 0;
     const changePct = first > 0 ? Math.round(((last - first) / first) * 100) : null;
 
+    // "OO 검색량 대비 몇 %"를 정확히 계산: 같은 달(최근 달) 기준으로 아이템/기준키워드 값을 직접 나눔.
+    // (이전 버전은 "구간 내 최고점 대비"였는데, 그 최고점이 항상 ref의 최근 값이라는 보장이 없어서
+    //  라벨("OO 대비")이랑 실제 계산이 안 맞을 수 있었음 — 이제 같은 달끼리 직접 비교하도록 수정)
+    let shareOfRefPct = null;
+    if (refSeriesRaw && refSeriesRaw.length > 0) {
+      const refLast = refSeriesRaw[refSeriesRaw.length - 1]?.ratio ?? 0;
+      if (refLast > 0) {
+        shareOfRefPct = Math.round((last / refLast) * 1000) / 10; // 소수점 한 자리
+      }
+    }
+
     return res.status(200).json({
       keyword,
       ref: ref || null,
-      comparedToRef: !!refSeriesRaw, // 기준 키워드랑 같이 조회돼서 100 기준점이 정직해졌는지 여부
+      comparedToRef: shareOfRefPct !== null,
       changePct, // 트렌드(변화율) — 상승/하락 방향
-      latestRatio: Math.round(last * 10) / 10, // 관심도 지수 — ref 대비 정직한 상대 수준 (소수점 한 자리 유지)
+      // ref가 있으면 "이번 달 ref 검색량 대비 정확히 몇 %"(shareOfRefPct), 없으면 예전 방식(자기 구간 내 상대값)
+      latestRatio: shareOfRefPct !== null ? shareOfRefPct : Math.round(last * 10) / 10,
       series: itemSeries,
     });
   } catch (e) {
