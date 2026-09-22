@@ -1,15 +1,26 @@
 // 네이버 검색어 트렌드 (NAVER API HUB) 연동
 // 문서: https://api.ncloud-docs.com/docs/naver-api-hub-search-trend
-// 참고: 이 API는 절대 검색량이 아니라 "요청 범위 내 최고치를 100으로 둔 상대값"만 준다.
-// 그래서 검색어 하나만 조회하면, 원래 검색량이 적은 틈새 키워드도 자기 자신의 최근 고점 근처면
-// 100에 가깝게 나와서 "엄청 인기있다"는 착시를 만든다.
 //
-// 기준 키워드도 잘못 고르면 문제가 생긴다: "분식"처럼 카테고리명 자체는 사람들이 잘 안 쳐서
-// 기준 자체가 약하면, 오히려 틈새 아이템이 그 기준 대비 비정상적으로 높게(예: 89%) 나와버림.
-// 그래서 "좁은 기준"(세부업종에 가까운 단어, 예: 김밥)과 "넓은 기준"(대분류, 예: 분식)을
-// 한 번에 같이 조회해서, 좁은 기준 대비 비율이 비정상적으로 높으면(=좁은 기준 자체가 약하다는 신호)
-// 자동으로 넓은 기준 쪽 결과로 바꿔치기한다.
-const ESCALATE_THRESHOLD_PCT = 40; // 이 비율 넘으면 "기준이 약하다"고 보고 넓은 기준으로 전환
+// v3 — 관심도를 "완전히 다른 질문에 답하는 두 숫자"로 분리:
+//
+// 1) itemLevel (아래 "관심도 지수", 0~100): 이 아이템 자체가 최근 12개월 자기 흐름 안에서
+//    지금 어디쯤인지. 카테고리 비교를 아예 안 함 — 그래서 "대분류로 비교하면 너무 낮고,
+//    중분류로 비교하면 그 중분류 자체가 작아서 오히려 높아 보이는" 병목현상이 원천적으로 없음.
+//    (예: "마라국밥"을 대분류(한식) 대비로 보면 항상 작게, 중분류(국물요리) 대비로 보면
+//    중분류 자체 검색량이 작아서 부풀어 보이는 문제 — 이건 카테고리 비교를 안 하면 아예 안 생김)
+//    Naver가 주는 지수 자체가 "요청 구간 내 최고치=100"인 상대값이라, 구간을 12개월로 넉넉하게
+//    잡으면 그 자체가 "최근 1년 내 지금이 어느 위치인지"가 됨 — 별도 계산 필요 없이 그대로 씀.
+//
+// 2) shareChangePp (위쪽 훅 "+X%p"): 카테고리(기준 키워드) 검색량 대비 이 아이템의 비중이
+//    3개월 전 대비 얼마나 움직였는지. "방향성"(뜨고 있나 식고 있나)만 보는 용도라 카테고리
+//    선택에 따라 절대 수치는 달라져도 "오르는 중/내리는 중"이라는 신호 자체는 유효함.
+//    두 시점 다 같은 기준 대비 비중(%)이라 division-by-small-number로 숫자가 폭주하는 문제 없음.
+//
+// itemLevel은 카테고리 비교가 필요 없어서, 기준 키워드를 못 찾는 경우(comparedToRef:false)에도
+// 항상 계산 가능함 — 그래서 위쪽 훅은 "추정"으로 빠져도 아래 관심도 지수는 실데이터로 보여줄 수 있음.
+const ESCALATE_THRESHOLD_PCT = 40;
+const WINDOW_MONTHS = 12; // itemLevel의 기준 구간(자기 자신 12개월 내 위치)
+const SHARE_LOOKBACK_MONTHS = 3; // 위쪽 훅("3개월 전 대비")의 비교 구간
 
 export default async function handler(req, res) {
   try {
@@ -27,10 +38,9 @@ export default async function handler(req, res) {
     const today = new Date();
     const endDate = today.toISOString().slice(0, 10);
     const startDateObj = new Date(today);
-    startDateObj.setMonth(startDateObj.getMonth() - 3); // 최근 3개월
+    startDateObj.setMonth(startDateObj.getMonth() - WINDOW_MONTHS);
     const startDate = startDateObj.toISOString().slice(0, 10);
 
-    // 아이템(0) + 좁은 기준(1, 있으면) + 넓은 기준(2, 있고 좁은 기준과 다르면)을 한 번에 조회
     const keywordGroups = [{ groupName: keyword, keywords: [keyword] }];
     const groupOrder = ["item"];
     if (ref && ref !== keyword) {
@@ -66,51 +76,62 @@ export default async function handler(req, res) {
     const itemSeries = seriesByRole.item || [];
 
     if (itemSeries.length === 0) {
-      return res.status(200).json({ keyword, changePct: null, raw: data });
+      return res.status(200).json({ keyword, hasItemLevel: false, comparedToRef: false, series: itemSeries });
     }
 
-    const first = itemSeries[0]?.ratio ?? 0;
-    const last = itemSeries[itemSeries.length - 1]?.ratio ?? 0;
-    const changePct = first > 0 ? Math.round(((last - first) / first) * 100) : null;
+    // 1) itemLevel — 그냥 이 12개월 구간에서의 마지막(현재) 값. Naver가 이미 "구간 내 최고치=100"으로
+    // 정규화해서 주기 때문에, 구간을 12개월로 잡은 시점에서 추가 계산이 필요 없음.
+    const itemLevel = Math.round((itemSeries[itemSeries.length - 1]?.ratio ?? 0) * 10) / 10;
 
-    function sharePct(refSeries) {
-      if (!refSeries || refSeries.length === 0) return null;
-      const refLast = refSeries[refSeries.length - 1]?.ratio ?? 0;
-      if (refLast <= 0) return null;
-      return Math.round((last / refLast) * 1000) / 10;
+    // 2) shareChangePp — "3개월 전 대비 카테고리 비중 변화". 12개월 시계열 중 마지막 지점과,
+    // 그로부터 SHARE_LOOKBACK_MONTHS개월 전 지점, 두 시점만 비교.
+    const lastIdx = itemSeries.length - 1;
+    const pastIdx = Math.max(0, lastIdx - SHARE_LOOKBACK_MONTHS);
+
+    function shareAt(refSeries, idx) {
+      const refRatio = refSeries?.[idx]?.ratio ?? 0;
+      const itemRatio = itemSeries[idx]?.ratio ?? 0;
+      if (refRatio <= 0) return null;
+      return Math.round((itemRatio / refRatio) * 1000) / 10;
     }
 
-    const narrowPct = sharePct(seriesByRole.narrow);
-    const broadPct = sharePct(seriesByRole.broad);
+    function shareDelta(refSeries) {
+      const last = shareAt(refSeries, lastIdx);
+      const past = shareAt(refSeries, pastIdx);
+      if (last === null || past === null) return null;
+      return { last, past };
+    }
 
-    // 좁은 기준 대비가 비정상적으로 높으면(=좁은 기준 자체가 약한 검색어라는 신호) 넓은 기준으로 전환
-    let finalPct, usedRef, usedLevel;
-    if (narrowPct !== null && narrowPct <= ESCALATE_THRESHOLD_PCT) {
-      finalPct = narrowPct;
+    const narrowFL = shareDelta(seriesByRole.narrow);
+    const broadFL = shareDelta(seriesByRole.broad);
+
+    // 좁은 기준 대비 "지금" 비중이 낮으면(=기준이 충분히 크다는 뜻) 좁은 기준 채택,
+    // 너무 높으면(=기준 자체가 약함) 넓은 기준으로 전환.
+    let chosen = null;
+    let usedRef = null;
+    let usedLevel = null;
+    if (narrowFL && narrowFL.last <= ESCALATE_THRESHOLD_PCT) {
+      chosen = narrowFL;
       usedRef = ref;
       usedLevel = "narrow";
-    } else if (broadPct !== null) {
-      finalPct = broadPct;
+    } else if (broadFL) {
+      chosen = broadFL;
       usedRef = broadRef;
       usedLevel = "broad";
-    } else if (narrowPct !== null) {
-      // 넓은 기준이 없어서 좁은 기준이 이상해도 그거라도 씀
-      finalPct = narrowPct;
+    } else if (narrowFL) {
+      chosen = narrowFL;
       usedRef = ref;
       usedLevel = "narrow";
-    } else {
-      finalPct = null;
-      usedRef = null;
-      usedLevel = null;
     }
 
     return res.status(200).json({
       keyword,
-      ref: usedRef,
-      refLevel: usedLevel, // "narrow" | "broad" | null — 프론트에서 태그 문구에 씀
-      comparedToRef: finalPct !== null,
-      changePct, // 트렌드(변화율) — 상승/하락 방향
-      latestRatio: finalPct !== null ? finalPct : Math.round(last * 10) / 10,
+      hasItemLevel: true,
+      itemLevel, // "관심도 지수" — 카테고리 비교 없는, 이 아이템 자체의 12개월 내 상대 위치(0~100)
+      ref: chosen ? usedRef : null,
+      refLevel: chosen ? usedLevel : null,
+      comparedToRef: !!chosen,
+      shareChangePp: chosen ? Math.round((chosen.last - chosen.past) * 10) / 10 : null, // 훅 "+X%p"
       series: itemSeries,
     });
   } catch (e) {
