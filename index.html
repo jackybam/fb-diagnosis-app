@@ -521,6 +521,12 @@ const REF_KEYWORD_MAP = {
   "아시안/기타": "맛집"
 };
 
+// 메뉴 미입력 시 조회할 대표 검색어. 업종 전체의 합산 검색량은 아니다.
+const MAJOR_TREND_KEYWORD_MAP = {
+  ...REF_KEYWORD_MAP,
+  "아시안/기타": "쌀국수"
+};
+
 // 세부업종별로 더 가까운 "좁은 기준어"도 따로 둠 (예: "국/탕/찌개류" -> "찌개").
 // 서버가 먼저 이 좁은 기준으로 시도해보고, 그 기준 자체가 약해서 비율이 비정상적으로
 // 높게 나오면 자동으로 위 대분류(넓은) 기준으로 전환함.
@@ -748,14 +754,14 @@ async function runIdea() {
   const biz = document.getElementById('ideaBiz').value;
   const customItem = document.getElementById('ideaName').value.trim();
 
-  const isAllMode = biz.includes(","); // "전체 (OO 통틀어)" 선택한 경우
+  // 세부업종이 하나인 분식도 첫 번째 '전체' 옵션으로 정확히 구분한다.
+  const isAllMode = document.getElementById('ideaBiz').selectedIndex === 0;
   const bizDisplay = isAllMode ? `${bizMajor} 전체` : biz; // 화면에 보여줄 때만 쓰는 짧은 표기
   const item = customItem || bizDisplay; // 이름 안 넣으면 선택한 세부업종(또는 "전체" 표기) 이름 그대로 사용
-  // 네이버 트렌드 검색은 따로 키워드를 둔다 — "한식 전체"처럼 실제로 아무도 안 쓰는 말을
-  // 그대로 검색하면 검색량이 항상 0으로 나와서 관심도 지수가 매번 "추정"으로 빠지는 버그가
-  // 있었음. 이름을 직접 안 넣었고 "전체" 모드면, 화면 표기("한식 전체")가 아니라 대분류
-  // 이름("한식")만 검색어로 써야 실제 검색량이 잡힘.
-  const trendKeyword = customItem || (isAllMode ? bizMajor : biz);
+  // 화면용 업종명 대신 대표 검색어를 사용하고, 직접 입력한 메뉴는 그대로 조회한다.
+  const trendKeyword = customItem || (isAllMode
+    ? (MAJOR_TREND_KEYWORD_MAP[bizMajor] || bizMajor)
+    : (SUB_REF_MAP[biz] || biz));
 
   // 아이템명 안에 다른 세부업종을 암시하는 단어가 있으면 카테고리 선택 실수일 수 있으니 확인
   // ("전체" 모드에서는 어차피 다 합쳐서 보니까 이 경고 자체가 의미 없어서 건너뜀)
@@ -824,7 +830,7 @@ async function runIdea() {
   const sharePp = hasRealHook ? buzz.shareChangePp : mockBuzzPp; // 위쪽 훅 숫자
   const interestLevel = buzz ? buzz.itemLevel : mockItemLevel; // 아래 "관심도 지수" 값
   const interestTag = buzz ? "실데이터" : "추정";
-  const interestLabel = "관심도 지수";
+  const interestLabel = customItem ? "관심도 지수" : `관심도 지수 (${trendKeyword})`;
   const interestUnit = "%";
 
   // 경쟁 강도(구 "진입 난이도"): 매장 수+관심도 둘 다 실데이터면 그 조합으로 계산한 "모델 기반 추정".
@@ -846,16 +852,17 @@ async function runIdea() {
   // 0%p(변화 없음)를 sharePp >= 0에 묶어서 "늘고 있어요"라고 하면 거짓 긍정 신호가 되니까,
   // 0은 따로 "변화 없음"으로 중립 취급한다 (색도 --good/--bad 아닌 --mid).
   const trend = sharePp > 0 ? "up" : sharePp < 0 ? "down" : "flat";
-  document.getElementById('hookNum').textContent = (sharePp > 0 ? "+" : "") + sharePp + "%p";
+  document.getElementById('hookNum').textContent = hasRealHook ? (sharePp > 0 ? "+" : "") + sharePp + "%p" : "—";
   document.getElementById('hookNum').style.color =
-    trend === "up" ? "var(--good)" : trend === "down" ? "var(--bad)" : "var(--mid)";
+    !hasRealHook ? "var(--mid)" : trend === "up" ? "var(--good)" : trend === "down" ? "var(--bad)" : "var(--mid)";
   const refNote = hasRealHook ? `${buzz.ref} 검색량 대비 ` : '';
   const hookMsg =
     trend === "up" ? `비슷한 컨셉을 찾는 사람이 늘고 있어요.`
     : trend === "down" ? `트렌드가 주춤한 시기일 수 있어요.`
     : `3개월 전과 비슷한 수준을 유지하고 있어요.`;
   document.getElementById('hookText').innerHTML =
-    `최근 3개월 "${item}" ${refNote}검색 관심도 변화 — ${hookMsg}` +
+    (hasRealHook ? `최근 3개월 "${trendKeyword}" ${refNote}검색 관심도 변화 — ${hookMsg}`
+      : `"${trendKeyword}"의 비교 기준 대비 변화는 확인할 수 없어요.`) +
     (hasRealHook ? ` <span class="m-tag m-tag-real" style="margin-left:6px;">실데이터</span>` : '');
 
   document.getElementById('scoreNum').textContent = score;
@@ -880,7 +887,9 @@ async function runIdea() {
   document.getElementById('insight').textContent =
     `${loc} 인근에 "${item}"과(와) 같은 카테고리로 분류되는 매장이 ${storeCount}곳 있습니다${popNote}. ` +
     `이게 이미 과포화된 위험 신호인지, 오히려 수요가 검증된 상권이라는 신호인지는 이 숫자만으론 판단하기 어렵습니다. ` +
-    `검색 관심도는 최근 ${trendWord} 추세(${sharePp > 0 ? '+' : ''}${sharePp}%p)입니다.`;
+    (hasRealHook ? `검색 관심도는 최근 ${trendWord} 추세(${sharePp > 0 ? '+' : ''}${sharePp}%p)입니다.`
+      : '비교 기준 대비 검색 관심도 변화는 확인할 수 없습니다.') +
+    (!customItem ? ` 관심도 지수는 대표 검색어 "${trendKeyword}" 기준이며, 업종 전체의 합산 검색량은 아닙니다.` : '');
 
   document.getElementById('premiumTeaser').textContent =
     `"${item}", 매장 ${storeCount}곳이 위험 신호인지 검증된 상권 신호인지 정확히 알려드립니다.`;
