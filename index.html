@@ -562,7 +562,11 @@ async function fetchRealBuzz(item, biz, bizMajor) {
     const params = new URLSearchParams({ keyword: item, ref: narrowRef, broadRef });
     const r = await fetch(`/api/trend?${params.toString()}`);
     const data = await r.json();
-    if (!r.ok || typeof data.changePct !== 'number' || typeof data.latestRatio !== 'number') return null;
+    // v3: itemLevel("관심도 지수")은 카테고리 비교 없이 이 아이템 자체 데이터만 있으면 계산되고,
+    // shareChangePp(위쪽 훅 "+X%p")는 기준 카테고리를 찾았을 때만(comparedToRef) 계산됨.
+    // 그래서 여기서는 itemLevel 유무만 보고 통과시키고, 훅이 실데이터인지는 화면 쪽에서
+    // buzz.comparedToRef로 따로 판단한다 — "관심도 지수는 실데이터, 위 훅은 추정"인 경우가 생길 수 있음.
+    if (!r.ok || data.hasItemLevel !== true || typeof data.itemLevel !== 'number') return null;
     return data;
   } catch (e) {
     return null;
@@ -783,24 +787,33 @@ async function runIdea() {
   const densityMax = hasPop ? 30 : 150;
   const densityLabelBase = hasPop ? "업종 밀도(인구 대비)" : "업종 포화도";
   const densityLabel = isMajorLevel ? `${bizMajor} ${densityLabelBase}` : isAllMode ? `${bizMajor} ${densityLabelBase}(전체)` : densityLabelBase;
-  const densityTag = !density ? "추정" : !hasPop ? (isMajorLevel ? "실데이터(대분류 기준, 인구매칭 안됨)" : "실데이터(인구매칭 안됨)") : isMajorLevel ? "실데이터(대분류 기준)" : "실데이터";
+  const densityTagBase = !density ? "추정" : !hasPop ? (isMajorLevel ? "실데이터(대분류 기준, 인구매칭 안됨)" : "실데이터(인구매칭 안됨)") : isMajorLevel ? "실데이터(대분류 기준)" : "실데이터";
+  // 세부업종 몇 개 중 일부만 조회 실패했을 때 — 매장 수를 아예 못 믿게 하지 않고, 대신
+  // "일부만 반영됨"이라고 솔직히 표시 (전체 다 실패한 경우는 애초에 density 자체가 null이라 위에서 "추정"으로 빠짐)
+  const densityTag = density?.partial ? `${densityTagBase}·일부만 반영` : densityTagBase;
 
-  // 관심도 지수: 실데이터(구간 내 상대 수준) 있으면 그걸로.
-  // ref랑 비교됐으면 단위를 "점"이 아니라 "%"로 바꿔서 "OO 대비 몇 %"라는 걸 바로 알 수 있게 함
-  // (안 그러면 "0.3점" 같은 숫자가 버그처럼 보임 — 실은 "한식 전체 검색량의 0.3%"라는 뜻).
-  const mockBuzzPct = Math.floor(seededRandom(seed * 1.4) * 140) - 20;
-  const changePct = buzz ? buzz.changePct : mockBuzzPct;
-  const interestLevel = buzz ? buzz.latestRatio : Math.max(0, 50 + Math.floor(mockBuzzPct / 2));
-  const interestTag = !buzz ? "추정" : buzz.comparedToRef ? `실데이터(${buzz.ref} 대비)` : "실데이터";
-  const interestLabel = buzz?.comparedToRef ? `관심도 (${buzz.ref} 검색량 대비)` : "관심도 지수";
-  const interestUnit = buzz?.comparedToRef ? "%" : "점";
+  // 관심도: v3 — "완전히 다른 질문에 답하는 두 숫자"로 분리.
+  // 1) interestLevel(아래 "관심도 지수"): 이 아이템 자체가 최근 12개월 자기 흐름 안에서 지금
+  //    어디쯤인지 — 카테고리 비교를 아예 안 하므로 "대분류 대비로는 낮고 중분류 대비로는
+  //    부풀어 보이는" 병목현상이 원천적으로 없음. buzz만 있으면(hasItemLevel) 항상 실데이터.
+  // 2) sharePp(위쪽 훅 "+X%p"): 기준 카테고리 대비 비중이 3개월 전보다 얼마나 움직였는지 —
+  //    "방향성"만 보는 용도. 기준 카테고리를 못 찾으면(comparedToRef:false) 실데이터가 아니라서
+  //    이건 따로 추정으로 빠질 수 있음 — 즉 관심도 지수는 실데이터인데 위 훅은 추정인 경우가 있음.
+  const mockBuzzPp = Math.floor(seededRandom(seed * 1.4) * 140) - 20; // 훅 추정용 가짜 %p 변화
+  const mockItemLevel = Math.max(0, 50 + Math.floor(mockBuzzPp / 2)); // 관심도 지수 추정용 가짜 값
+  const hasRealHook = !!(buzz && buzz.comparedToRef);
+  const sharePp = hasRealHook ? buzz.shareChangePp : mockBuzzPp; // 위쪽 훅 숫자
+  const interestLevel = buzz ? buzz.itemLevel : mockItemLevel; // 아래 "관심도 지수" 값
+  const interestTag = buzz ? "실데이터" : "추정";
+  const interestLabel = "관심도 지수";
+  const interestUnit = "%";
 
   // 경쟁 강도(구 "진입 난이도"): 매장 수+관심도 둘 다 실데이터면 그 조합으로 계산한 "모델 기반 추정".
   // 매장이 많다/관심도가 높다 = 나쁘다는 뜻이 아니라 "경쟁이 치열한 상권"이라는 뜻일 뿐이라 중립 취급.
   let competitionIntensity, competitionTag;
   if (density && buzz) {
     const saturationScore = Math.min(100, (storeCount / 150) * 100);
-    competitionIntensity = Math.round(saturationScore * 0.6 + interestLevel * 0.4);
+    competitionIntensity = Math.round(Math.min(100, saturationScore) * 0.6 + Math.min(100, interestLevel) * 0.4);
     competitionTag = "추정(실데이터 기반 모델)";
   } else {
     competitionIntensity = Math.floor(seededRandom(seed * 3.3) * 90) + 5;
@@ -809,14 +822,16 @@ async function runIdea() {
 
   document.getElementById('resultTitle').textContent = "진단 결과";
   document.getElementById('hook').style.display = 'flex';
-  document.getElementById('hookNum').textContent = (changePct >= 0 ? "+" : "") + changePct + "%";
-  document.getElementById('hookNum').style.color = changePct >= 0 ? "var(--good)" : "var(--bad)";
-  const refNote = buzz?.comparedToRef ? `${buzz.ref} 검색량 대비 ` : '';
+  // v2: "%"가 아니라 "%p"(퍼센트포인트) — "비중이 3개월 전보다 몇 %p 움직였나"라는 뜻.
+  // (예전 "+700%" 같은 폭주가 나던 자리. 이제 두 시점 다 같은 기준 대비 비중이라 숫자가 안정적임.)
+  document.getElementById('hookNum').textContent = (sharePp >= 0 ? "+" : "") + sharePp + "%p";
+  document.getElementById('hookNum').style.color = sharePp >= 0 ? "var(--good)" : "var(--bad)";
+  const refNote = hasRealHook ? `${buzz.ref} 검색량 대비 ` : '';
   document.getElementById('hookText').innerHTML =
-    (changePct >= 0
+    (sharePp >= 0
       ? `최근 3개월 "${item}" ${refNote}검색 관심도 변화 — 비슷한 컨셉을 찾는 사람이 늘고 있어요.`
       : `최근 3개월 "${item}" ${refNote}검색 관심도 변화 — 트렌드가 주춤한 시기일 수 있어요.`) +
-    (buzz ? ` <span class="m-tag m-tag-real" style="margin-left:6px;">실데이터</span>` : '');
+    (hasRealHook ? ` <span class="m-tag m-tag-real" style="margin-left:6px;">실데이터</span>` : '');
 
   document.getElementById('scoreNum').textContent = score;
   document.getElementById('scoreTitle').textContent =
@@ -827,7 +842,7 @@ async function runIdea() {
     : "신중한 검토가 필요한 조합입니다.";
 
   renderMetrics([
-    { label: interestLabel, val: interestLevel, unit: interestUnit, max: buzz?.comparedToRef ? 100 : undefined, neutral: true, tag: interestTag },
+    { label: interestLabel, val: interestLevel, unit: interestUnit, max: 100, neutral: true, tag: interestTag },
     { label: densityLabel, val: densityVal, unit: densityUnit, max: densityMax, neutral: true, tag: densityTag },
     { label: "경쟁 강도", val: competitionIntensity, unit: "%", neutral: true, tag: competitionTag }
   ]);
@@ -839,7 +854,7 @@ async function runIdea() {
   document.getElementById('insight').textContent =
     `${loc} 인근에 "${item}"과(와) 같은 카테고리로 분류되는 매장이 ${storeCount}곳 있습니다${popNote}. ` +
     `이게 이미 과포화된 위험 신호인지, 오히려 수요가 검증된 상권이라는 신호인지는 이 숫자만으론 판단하기 어렵습니다. ` +
-    `검색 관심도는 최근 ${changePct >= 0 ? '상승' : '하락'} 추세(${changePct}%)입니다.`;
+    `검색 관심도는 최근 ${sharePp >= 0 ? '상승' : '하락'} 추세(${sharePp >= 0 ? '+' : ''}${sharePp}%p)입니다.`;
 
   document.getElementById('premiumTeaser').textContent =
     `"${item}", 매장 ${storeCount}곳이 위험 신호인지 검증된 상권 신호인지 정확히 알려드립니다.`;
