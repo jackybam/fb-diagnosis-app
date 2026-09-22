@@ -114,7 +114,11 @@ export async function findUpjongCode(serviceKey, level, keyword) {
 }
 
 // 특정 행정동+업종 조건의 상가업소 개수를 구한다 (업종 밀집도용 실데이터).
-export async function countStoresInDong(serviceKey, adongCd, upjongParam) {
+// "전체" 업종 모드에서는 이 함수가 동 개수 × 세부업종 개수만큼 거의 동시에 호출될 수 있는데,
+// data.go.kr류 공공 API는 순간적으로 몰리는 요청(트래픽 버스트)을 쉽게 튕겨내기 때문에
+// 실패 시 짧은 대기 후 한 번 더 시도한다 (아래 runWithConcurrencyLimit의 동시 호출 제한과 같이
+// 써야 효과가 있음 — 재시도만으론 애초에 다 같이 몰려서 실패하는 걸 못 막음).
+export async function countStoresInDong(serviceKey, adongCd, upjongParam, retries = 2) {
   const params = new URLSearchParams({
     serviceKey,
     pageNo: "1",
@@ -125,9 +129,44 @@ export async function countStoresInDong(serviceKey, adongCd, upjongParam) {
     ...upjongParam, // { indsMclsCd: 'xxxx' } 등
   });
   const url = `${BASE}/storeListInDong?${params.toString()}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`storeListInDong 호출 실패: ${res.status}`);
-  const data = await res.json();
-  // totalCount 위치도 배포 후 실제 응답으로 확인 필요 (body.totalCount 가정)
-  return Number(data?.body?.totalCount ?? 0);
+
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`storeListInDong 호출 실패: ${res.status}`);
+      const data = await res.json();
+      // totalCount 위치도 배포 후 실제 응답으로 확인 필요 (body.totalCount 가정)
+      return Number(data?.body?.totalCount ?? 0);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) {
+        const backoff = 350 * (attempt + 1) + Math.floor(Math.random() * 150); // 약간의 지터
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+// items를 최대 limit개까지만 동시에 처리하는 간단한 동시성 제한 실행기.
+// Promise.all/allSettled로 전부 한 번에 쏘면 "전체" 모드처럼 조합 수가 수십 개로 늘어날 때
+// 공공 API 쪽 트래픽 버스트 제한에 걸려 무더기로 실패하는 문제가 있어서, 한 번에 나가는
+// 요청 수 자체를 줄여 실패 확률을 낮춘다. 반환 형태는 Promise.allSettled와 동일.
+export async function runWithConcurrencyLimit(items, limit, worker) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function runner() {
+    while (idx < items.length) {
+      const current = idx++;
+      try {
+        results[current] = { status: "fulfilled", value: await worker(items[current]) };
+      } catch (e) {
+        results[current] = { status: "rejected", reason: e };
+      }
+    }
+  }
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, () => runner()));
+  return results;
 }
