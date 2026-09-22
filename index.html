@@ -564,9 +564,15 @@ const CATEGORY_HINT_MAP = {
   "칼국수": "국수/칼국수", "냉면": "냉면/밀면", "족발": "족발/보쌈", "보쌈": "족발/보쌈", "곱창": "곱창 전골/구이"
 };
 
-async function fetchRealBuzz(item, biz, bizMajor) {
+async function fetchRealBuzz(item, biz, bizMajor, isAllMode) {
   try {
-    const narrowRef = SUB_REF_MAP[biz] || "";
+    // "전체" 모드에서는 narrowRef(세부업종 기준어)를 쓰면 안 됨 — 예를 들어 "분식"은
+    // 세부업종이 "김밥/만두/분식" 하나뿐이라서, "전체"를 선택해도 biz 값이 그 세부업종
+    // 이름과 똑같아짐. 그러면 SUB_REF_MAP에서 "김밥"을 찾아버려서, 사용자가 "분식 전체"를
+    // 골랐는데 "김밥 검색량 대비"로 비교 기준이 엉뚱하게 좁혀지는 문제가 있었음 (실제로
+    // "짜장떡볶이"를 입력했는데 "김밥 검색량 대비"로 나온 사례로 확인함). "전체" 모드일 땐
+    // narrowRef 없이 broadRef(대분류 대표 단어, 예: 분식→"떡볶이")만 기준으로 씀.
+    const narrowRef = isAllMode ? "" : (SUB_REF_MAP[biz] || "");
     const broadRef = REF_KEYWORD_MAP[bizMajor] || bizMajor;
     const params = new URLSearchParams({ keyword: item, ref: narrowRef, broadRef });
     const r = await fetch(`/api/trend?${params.toString()}`);
@@ -808,7 +814,7 @@ async function runIdea() {
 
   const [density, buzz] = await Promise.all([
     fetchRealDensity(adongCd, biz, bizMajor, regionState.idea.ctprvnNm, regionState.idea.signguNm, regionState.idea.dongLabel),
-    fetchRealBuzz(trendKeyword, biz, bizMajor),
+    fetchRealBuzz(trendKeyword, biz, bizMajor, isAllMode),
   ]);
 
   btn.disabled = false;
