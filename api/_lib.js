@@ -149,6 +149,43 @@ export async function countStoresInDong(serviceKey, adongCd, upjongParam, retrie
   throw lastErr;
 }
 
+// 특정 행정동+업종 조건의 상가업소 "목록"을 통째로 가져온다 (상호명 등 개별 항목이 필요할 때 —
+// countStoresInDong은 개수만 필요할 때 numOfRows:1로 가볍게 쓰는 용도고, 이건 그 반대).
+// 프랜차이즈 탭의 "인근 동일 브랜드 매장 수"용 — SBIZ API 자체엔 상호명(bizesNm) 검색
+// 파라미터가 없어서(디버그로 직접 확인함), 동네 안 상가 목록을 받아와서 우리 코드에서
+// bizesNm/brchNm에 브랜드명이 포함되는지 직접 걸러내는 방식으로 구현함.
+export async function listStoresInDong(serviceKey, adongCd, upjongParam, numOfRows = 500, retries = 2) {
+  const params = new URLSearchParams({
+    serviceKey,
+    pageNo: "1",
+    numOfRows: String(numOfRows),
+    divId: "adongCd",
+    key: adongCd,
+    type: "json",
+    ...upjongParam,
+  });
+  const url = `${BASE}/storeListInDong?${params.toString()}`;
+
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`storeListInDong 호출 실패: ${res.status}`);
+      const data = await res.json();
+      const items = data?.body?.items ?? [];
+      const arr = Array.isArray(items) ? items : items ? [items] : [];
+      return { items: arr, totalCount: Number(data?.body?.totalCount ?? arr.length) };
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) {
+        const backoff = 350 * (attempt + 1) + Math.floor(Math.random() * 150);
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // items를 최대 limit개까지만 동시에 처리하는 간단한 동시성 제한 실행기.
 // Promise.all/allSettled로 전부 한 번에 쏘면 "전체" 모드처럼 조합 수가 수십 개로 늘어날 때
 // 공공 API 쪽 트래픽 버스트 제한에 걸려 무더기로 실패하는 문제가 있어서, 한 번에 나가는
