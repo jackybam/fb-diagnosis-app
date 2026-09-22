@@ -487,16 +487,19 @@ function renderMetrics(metrics) {
   const metricsEl = document.getElementById('metrics');
   metricsEl.innerHTML = "";
   metrics.forEach((m, i) => {
+    // m.val이 null이면 "아직 계산할 근거가 없다"는 뜻 (예: 세부업종 단독 선택 시 경쟁강도) —
+    // 0%짜리 막대를 그리면 "경쟁이 0"이라는 잘못된 신호가 되니, 빈 막대 + 안내 문구로 대체.
+    const isUnavailable = m.val === null || m.val === undefined;
     const max = m.max || 100;
-    const pct = Math.min(100, (m.val / max) * 100);
-    const barColor = barColorFor(m.val, m.higherBetter, m.goodTh, m.midTh, m.neutral);
+    const pct = isUnavailable ? 0 : Math.min(100, (m.val / max) * 100);
+    const barColor = isUnavailable ? 'var(--mid)' : barColorFor(m.val, m.higherBetter, m.goodTh, m.midTh, m.neutral);
     const row = document.createElement('div');
     row.className = "metric-row";
     row.id = "metric-row-" + i;
     row.innerHTML = `
       <div class="m-label">${m.label}<span class="m-tag ${m.tag && m.tag.startsWith('실데이터') ? 'm-tag-real' : ''}">${m.tag || '추정'}</span></div>
-      <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:${barColor};"></div></div>
-      <div class="m-val">${m.val}${m.unit}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:${barColor}; opacity:${isUnavailable ? 0.2 : 1};"></div></div>
+      <div class="m-val">${isUnavailable ? (m.displayText || '준비 중') : m.val + m.unit}</div>
     `;
     metricsEl.appendChild(row);
   });
@@ -742,6 +745,18 @@ const bizBaseline = {
   "치킨/버거/피자": 52, "주점": 50, "분식": 60, "양식": 48, "아시안/기타": 45
 };
 
+// 경쟁 강도 계산용 "업종별 평상시 밀도" 기준선 (인구 1,000명당 매장 수).
+// 업종마다 원래 흔한 정도가 다름(카페는 원래 밀도가 높고, 양식/아시안은 낮은 편) — 그래서
+// 모든 업종에 똑같은 절대 기준(예: 150곳)을 적용하면 안 되고, 업종별로 "이 정도 밀도면
+// 평균이다"라는 기준이 따로 있어야 함. 이 값들은 정식 통계로 검증된 게 아니라, 일반적인
+// 체감 수준을 바탕으로 잡은 러프한 시작값임 — 나중에 실제 업종별 평균 밀도 데이터가 생기면
+// 이 표를 그걸로 교체하는 게 맞음. densityPerK(1,000명당 매장 수)가 이 기준값과 같으면
+// 경쟁강도 50%, 1.5배면 75%, 2배 이상이면 100%로 계산함 (아래 competitionIntensity 참고).
+const densityBaselinePerK = {
+  "한식": 6, "중식": 3, "일식": 3, "카페/디저트": 10,
+  "치킨/버거/피자": 4, "주점": 5, "분식": 5, "양식": 2.5, "아시안/기타": 2
+};
+
 async function runIdea() {
   if (!regionState.idea.adongCds) {
     alert("지역을 목록에서 선택해주세요.");
@@ -804,12 +819,15 @@ async function runIdea() {
   const storeCount = density ? density.storeCount : mockStoreCount;
   const isMajorLevel = density?.matchLevel === 'major';
   // 매장 수 그 자체(절대값)는 동네 크기에 따라 왜곡되므로, 인구 데이터가 매칭됐으면
-  // "인구 1만명당 매장 수"로 정규화해서 보여준다 (행정안전부 인구통계, 동 이름 기준 매칭).
+  // "인구 1,000명당 매장 수"로 정규화해서 보여준다 (행정안전부 인구통계, 동 이름 기준 매칭).
+  // (예전엔 1만명 기준이었는데, 동 하나 인구가 몇천 명 수준인 경우가 많아서 1,000명 기준이
+  // 체감상 더 직관적임 — 단위만 바꾼 것.)
   // 인구 매칭이 안 된 지역(동 이름이 인구 데이터와 안 맞는 예외 케이스)이면 기존처럼 절대 개수로 대체.
-  const hasPop = density && typeof density.densityPer10k === 'number';
-  const densityVal = hasPop ? density.densityPer10k : storeCount;
-  const densityUnit = hasPop ? "개/만명" : "개";
-  const densityMax = hasPop ? 30 : 150;
+  const hasPop = density && typeof density.population === 'number' && density.population > 0;
+  const densityPerK = hasPop ? Math.round((density.storeCount / density.population) * 1000 * 100) / 100 : null;
+  const densityVal = hasPop ? densityPerK : storeCount;
+  const densityUnit = hasPop ? "개/천명" : "개";
+  const densityMax = hasPop ? 3 : 150;
   const densityLabelBase = hasPop ? "업종 밀도(인구 대비)" : "업종 포화도";
   const densityLabel = isMajorLevel ? `${bizMajor} ${densityLabelBase}` : isAllMode ? `${bizMajor} ${densityLabelBase}(전체)` : densityLabelBase;
   const densityTagBase = !density ? "추정" : !hasPop ? (isMajorLevel ? "실데이터(대분류 기준, 인구매칭 안됨)" : "실데이터(인구매칭 안됨)") : isMajorLevel ? "실데이터(대분류 기준)" : "실데이터";
@@ -833,16 +851,37 @@ async function runIdea() {
   const interestLabel = customItem ? "관심도 지수" : `관심도 지수 (${trendKeyword})`;
   const interestUnit = "%";
 
-  // 경쟁 강도(구 "진입 난이도"): 매장 수+관심도 둘 다 실데이터면 그 조합으로 계산한 "모델 기반 추정".
-  // 매장이 많다/관심도가 높다 = 나쁘다는 뜻이 아니라 "경쟁이 치열한 상권"이라는 뜻일 뿐이라 중립 취급.
+  // 경쟁 강도(구 "진입 난이도"): 공급(매장 밀도)만 갖고 계산 — 관심도(수요 신호)는 섞지 않음.
+  // 예전엔 매장포화도(60%)+관심도(40%)를 섞었는데 개념적으로 잘못된 설계였음 — 매장은 별로
+  // 없는데 검색 관심도만 높은 경우까지 "경쟁이 치열하다"로 잘못 나올 수 있었음. 관심도는 이미
+  // "관심도 지수"로 따로 보여주고 있으니, 여기선 순수하게 공급(매장 밀도) 기준으로만 계산.
+  //
+  // "대분류 전체"로 조회했거나 (세부업종 매칭이 실패해서 대분류로 대체 조회된) 경우엔 밀도가
+  // 그 대분류 전체를 대표하는 숫자라서 업종별 기준 밀도(densityBaselinePerK)와 비교가 됨.
+  // 하지만 세부업종 하나만 골랐을 땐 그 세부업종만의 기준 밀도를 따로 갖고 있지 않아서(예:
+  // "족발/보쌈" 하나만의 기준은 모름), 대분류 기준을 억지로 갖다 쓰면 그럴듯해 보이지만 틀린
+  // 숫자가 나옴 — 그래서 이 경우엔 숫자를 만들어내지 않고 "비교 기준 준비 중"이라고 정직하게
+  // 표시함 (밀도 자체는 위 densityVal에 그대로 나와있으니 참고는 가능).
+  const isMajorLevelDensity = isAllMode || isMajorLevel;
   let competitionIntensity, competitionTag;
-  if (density && buzz) {
-    const saturationScore = Math.min(100, (storeCount / 150) * 100);
-    competitionIntensity = Math.round(Math.min(100, saturationScore) * 0.6 + Math.min(100, interestLevel) * 0.4);
-    competitionTag = "추정(실데이터 기반 모델)";
-  } else {
+  if (!density) {
     competitionIntensity = Math.floor(seededRandom(seed * 3.3) * 90) + 5;
     competitionTag = "추정";
+  } else if (!isMajorLevelDensity) {
+    // 세부업종 단독 선택 — 아직 이 업종만의 비교 기준이 없어서 숫자를 못 냄.
+    competitionIntensity = null;
+    competitionTag = "비교 기준 준비 중";
+  } else if (hasPop) {
+    // 대분류(또는 전체) 기준 + 인구 매칭 성공 — 업종별 기준 밀도 대비로 계산.
+    // 기준 밀도와 같으면 50점, 1.5배면 75점, 2배 이상이면 100점(그 이상은 캡).
+    const baseline = densityBaselinePerK[bizMajor] || densityBaselinePerK["한식"];
+    competitionIntensity = Math.round(Math.min(100, (densityPerK / baseline) * 50));
+    competitionTag = "추정(실데이터 기반 모델)";
+  } else {
+    // 대분류 기준이지만 인구 매칭이 안 된 예외 지역 — 인구보정을 못 하니 예전처럼
+    // 매장 절대 개수 기준으로 대체 (그래도 관심도는 안 섞음).
+    competitionIntensity = Math.round(Math.min(100, (storeCount / 150) * 100));
+    competitionTag = "추정(실데이터 기반 모델, 인구매칭 안됨)";
   }
 
   document.getElementById('resultTitle').textContent = "진단 결과";
@@ -876,12 +915,15 @@ async function runIdea() {
   renderMetrics([
     { label: interestLabel, val: interestLevel, unit: interestUnit, max: 100, neutral: true, tag: interestTag },
     { label: densityLabel, val: densityVal, unit: densityUnit, max: densityMax, neutral: true, tag: densityTag },
-    { label: "경쟁 강도", val: competitionIntensity, unit: "%", neutral: true, tag: competitionTag }
+    { label: "경쟁 강도", val: competitionIntensity, unit: "%", neutral: true, tag: competitionTag, displayText: "비교 기준 준비 중" }
   ]);
 
-  // 무료 정보만으론 "이게 위험 신호인지 검증된 상권인지" 판단이 안 된다는 걸 숨기지 않고 그대로 말함
+  // 무료 정보만으론 "이게 위험 신호인지 검증된 상권인지" 판단이 안 된다는 걸 숨기지 않고 그대로 말함.
+  // 거주인구 기준이라는 점도 명시함 — 관광지·상업지구처럼 낮에만 몰리는 유동인구가 많은
+  // 동네는 실거주 인구만으로 계산하면 체감 경쟁도와 다르게(과장되거나 과소평가되어) 나올 수
+  // 있음. 나중에 생활인구(유동인구 포함) 데이터를 붙이면 이 부분을 더 정확하게 바꿀 수 있음.
   const popNote = hasPop
-    ? ` (거주인구 약 ${density.population.toLocaleString()}명 기준, 인구 1만명당 ${density.densityPer10k}곳)`
+    ? ` (거주인구 기준 약 ${density.population.toLocaleString()}명, 인구 1,000명당 ${densityPerK}곳 — 관광지·상업지구처럼 낮에 유동인구가 많은 동네는 거주인구만으론 실제 체감 경쟁도와 다를 수 있어요)`
     : '';
   const trendWord = trend === "up" ? "상승" : trend === "down" ? "하락" : "보합";
   document.getElementById('insight').textContent =
