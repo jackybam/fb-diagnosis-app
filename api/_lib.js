@@ -118,7 +118,10 @@ export async function findUpjongCode(serviceKey, level, keyword) {
 // data.go.kr류 공공 API는 순간적으로 몰리는 요청(트래픽 버스트)을 쉽게 튕겨내기 때문에
 // 실패 시 짧은 대기 후 한 번 더 시도한다 (아래 runWithConcurrencyLimit의 동시 호출 제한과 같이
 // 써야 효과가 있음 — 재시도만으론 애초에 다 같이 몰려서 실패하는 걸 못 막음).
-export async function countStoresInDong(serviceKey, adongCd, upjongParam, retries = 2) {
+// 실제로 "한식 전체"(세부업종 13개) 조합에서 동시 4개+재시도 2번으로도 13개가 통째로 실패하는
+// 게 재현돼서 재시도 횟수를 3번으로, 대기 시간도 조금 더 늘림 (diagnose.js 쪽 동시 호출 수도
+// 4→2로 같이 낮춰야 실효과가 있음).
+export async function countStoresInDong(serviceKey, adongCd, upjongParam, retries = 3) {
   const params = new URLSearchParams({
     serviceKey,
     pageNo: "1",
@@ -141,7 +144,7 @@ export async function countStoresInDong(serviceKey, adongCd, upjongParam, retrie
     } catch (e) {
       lastErr = e;
       if (attempt < retries) {
-        const backoff = 350 * (attempt + 1) + Math.floor(Math.random() * 150); // 약간의 지터
+        const backoff = 500 * (attempt + 1) + Math.floor(Math.random() * 250); // 약간의 지터
         await new Promise((r) => setTimeout(r, backoff));
       }
     }
