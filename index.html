@@ -824,13 +824,19 @@ async function runIdea() {
   document.getElementById('hook').style.display = 'flex';
   // v2: "%"가 아니라 "%p"(퍼센트포인트) — "비중이 3개월 전보다 몇 %p 움직였나"라는 뜻.
   // (예전 "+700%" 같은 폭주가 나던 자리. 이제 두 시점 다 같은 기준 대비 비중이라 숫자가 안정적임.)
-  document.getElementById('hookNum').textContent = (sharePp >= 0 ? "+" : "") + sharePp + "%p";
-  document.getElementById('hookNum').style.color = sharePp >= 0 ? "var(--good)" : "var(--bad)";
+  // 0%p(변화 없음)를 sharePp >= 0에 묶어서 "늘고 있어요"라고 하면 거짓 긍정 신호가 되니까,
+  // 0은 따로 "변화 없음"으로 중립 취급한다 (색도 --good/--bad 아닌 --mid).
+  const trend = sharePp > 0 ? "up" : sharePp < 0 ? "down" : "flat";
+  document.getElementById('hookNum').textContent = (sharePp > 0 ? "+" : "") + sharePp + "%p";
+  document.getElementById('hookNum').style.color =
+    trend === "up" ? "var(--good)" : trend === "down" ? "var(--bad)" : "var(--mid)";
   const refNote = hasRealHook ? `${buzz.ref} 검색량 대비 ` : '';
+  const hookMsg =
+    trend === "up" ? `비슷한 컨셉을 찾는 사람이 늘고 있어요.`
+    : trend === "down" ? `트렌드가 주춤한 시기일 수 있어요.`
+    : `3개월 전과 비슷한 수준을 유지하고 있어요.`;
   document.getElementById('hookText').innerHTML =
-    (sharePp >= 0
-      ? `최근 3개월 "${item}" ${refNote}검색 관심도 변화 — 비슷한 컨셉을 찾는 사람이 늘고 있어요.`
-      : `최근 3개월 "${item}" ${refNote}검색 관심도 변화 — 트렌드가 주춤한 시기일 수 있어요.`) +
+    `최근 3개월 "${item}" ${refNote}검색 관심도 변화 — ${hookMsg}` +
     (hasRealHook ? ` <span class="m-tag m-tag-real" style="margin-left:6px;">실데이터</span>` : '');
 
   document.getElementById('scoreNum').textContent = score;
@@ -851,10 +857,11 @@ async function runIdea() {
   const popNote = hasPop
     ? ` (거주인구 약 ${density.population.toLocaleString()}명 기준, 인구 1만명당 ${density.densityPer10k}곳)`
     : '';
+  const trendWord = trend === "up" ? "상승" : trend === "down" ? "하락" : "보합";
   document.getElementById('insight').textContent =
     `${loc} 인근에 "${item}"과(와) 같은 카테고리로 분류되는 매장이 ${storeCount}곳 있습니다${popNote}. ` +
     `이게 이미 과포화된 위험 신호인지, 오히려 수요가 검증된 상권이라는 신호인지는 이 숫자만으론 판단하기 어렵습니다. ` +
-    `검색 관심도는 최근 ${sharePp >= 0 ? '상승' : '하락'} 추세(${sharePp >= 0 ? '+' : ''}${sharePp}%p)입니다.`;
+    `검색 관심도는 최근 ${trendWord} 추세(${sharePp > 0 ? '+' : ''}${sharePp}%p)입니다.`;
 
   document.getElementById('premiumTeaser').textContent =
     `"${item}", 매장 ${storeCount}곳이 위험 신호인지 검증된 상권 신호인지 정확히 알려드립니다.`;
