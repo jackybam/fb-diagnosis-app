@@ -590,6 +590,20 @@ async function fetchRealDensity(adongCd, biz, bizMajor, ctprvnNm, signguNm, dong
   }
 }
 
+// 프랜차이즈 탭 — "인근 동일 브랜드 매장 수" 실데이터 조회 (SBIZ, 상호명 기준 직접 매칭)
+async function fetchRealFranchiseNearby(adongCd, brand) {
+  try {
+    if (!adongCd || !brand) return null;
+    const params = new URLSearchParams({ adongCd, brand });
+    const r = await fetch(`/api/franchise?${params.toString()}`);
+    const data = await r.json();
+    if (!r.ok || typeof data.sameBrandNearby !== 'number') return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
 function showResult() {
   document.getElementById('result').classList.add('show');
   document.getElementById('result').style.display = 'block';
@@ -875,21 +889,38 @@ async function runIdea() {
   showResult();
 }
 
-function runFranchise() {
+async function runFranchise() {
   if (!regionState.fran.adongCds) {
     alert("지역을 목록에서 선택해주세요.");
     document.getElementById('franRegion').focus();
     return;
   }
-  const brand = document.getElementById('franName').value.trim() || "미입력 브랜드";
+  const brandInput = document.getElementById('franName').value.trim();
+  const brand = brandInput || "미입력 브랜드";
   const loc = regionState.fran.label;
+  const adongCd = regionState.fran.adongCds.join(',');
 
   const seed = hashStr(brand + "|" + loc);
   const score = Math.max(15, Math.min(95, 45 + Math.floor(seededRandom(seed) * 45)));
 
-  const investRange = 3000 + Math.floor(seededRandom(seed * 1.6) * 7000); // 만원 단위, 초기투자금 대략치
-  const sameBrandNearby = Math.floor(seededRandom(seed * 2.4) * 6); // 인근 동일 브랜드 매장 수
-  const royaltyBurden = Math.floor(seededRandom(seed * 3.8) * 12) + 3; // 로열티+광고분담금 %
+  const investRange = 3000 + Math.floor(seededRandom(seed * 1.6) * 7000); // 만원 단위, 초기투자금 대략치 (아직 추정 — 정보공개서 실데이터 연동 전)
+  const mockSameBrandNearby = Math.floor(seededRandom(seed * 2.4) * 6); // 브랜드명 안 넣었을 때만 쓰는 추정치
+  const royaltyBurden = Math.floor(seededRandom(seed * 3.8) * 12) + 3; // 로열티+광고분담금 % (아직 추정)
+
+  // 브랜드명을 입력한 경우에만 실데이터 조회 시도 — SBIZ 상가 목록에서 상호명이 브랜드명을
+  // 포함하는 매장을 직접 세는 방식이라, 브랜드명이 없으면 애초에 뭘 찾을지가 없음.
+  const btn = document.querySelector('#panelFranchise .run-btn');
+  const originalBtnText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "진단 중...";
+
+  const nearby = brandInput ? await fetchRealFranchiseNearby(adongCd, brandInput) : null;
+
+  btn.disabled = false;
+  btn.textContent = originalBtnText;
+
+  const sameBrandNearby = nearby ? nearby.sameBrandNearby : mockSameBrandNearby;
+  const sameBrandTag = !nearby ? "추정" : nearby.partial ? "실데이터·일부만 반영" : "실데이터";
 
   document.getElementById('resultTitle').textContent = "진단 결과";
   document.getElementById('hook').style.display = 'flex';
@@ -907,12 +938,13 @@ function runFranchise() {
 
   renderMetrics([
     { label: "초기 투자금", val: investRange, unit: "만원", higherBetter: false, max: 10000, goodTh: 5000, midTh: 8000, tag: "추정" },
-    { label: "인근 동일 브랜드", val: sameBrandNearby, unit: "개", higherBetter: false, max: 8, goodTh: 2, midTh: 4, tag: "추정" },
+    { label: "인근 동일 브랜드", val: sameBrandNearby, unit: "개", higherBetter: false, max: 10, goodTh: 2, midTh: 4, tag: sameBrandTag },
     { label: "로열티·광고분담금", val: royaltyBurden, unit: "%", higherBetter: false, max: 15, goodTh: 6, midTh: 9, tag: "추정" }
   ]);
 
+  const nearbyNote = nearby ? '실제로' : brandInput ? '추정상' : '(브랜드명을 입력하면 실제 매장 수를 확인할 수 있어요) 추정상';
   document.getElementById('insight').textContent =
-    `${loc} 인근에는 "${brand}" 매장이 이미 ${sameBrandNearby}곳 있어 ${sameBrandNearby >= 3 ? "상권 내 자기잠식 우려가 있는 편" : "아직 포화 상태는 아닌 편"}입니다. 로열티·광고분담금 비중은 매출의 약 ${royaltyBurden}%로, ${royaltyBurden > 9 ? "본사 수수료 부담이 큰 편이라 순이익률을 꼼꼼히 따져봐야" : "비교적 합리적인 수준"}합니다.`;
+    `${loc} 인근에는 "${brand}" 매장이 ${nearbyNote} ${sameBrandNearby}곳 있어 ${sameBrandNearby >= 3 ? "상권 내 자기잠식 우려가 있는 편" : "아직 포화 상태는 아닌 편"}입니다. 로열티·광고분담금 비중은 매출의 약 ${royaltyBurden}%로, ${royaltyBurden > 9 ? "본사 수수료 부담이 큰 편이라 순이익률을 꼼꼼히 따져봐야" : "비교적 합리적인 수준"}합니다.`;
 
   document.getElementById('premiumTeaser').textContent = `"${brand}" 가맹, 진짜 순이익은 얼마 남을까?`;
   document.getElementById('premiumList').innerHTML = `
