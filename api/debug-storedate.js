@@ -81,17 +81,20 @@ export default async function handler(req, res) {
       });
     }
 
-    // 날짜 안 주면: 후보 날짜들을 가볍게(1건만) 훑어서 totalCount만 비교
+    // 날짜 안 주면: 후보 날짜들을 가볍게(1건만) 훑어서 totalCount만 비교.
+    // 순서대로 하나씩 부르면 (네트워크 왕복시간 × 후보 개수)만큼 걸려서 서버리스 함수
+    // 실행시간 제한에 걸릴 수 있으므로, 전부 동시에(병렬로) 쏴서 시간을 줄인다.
     const dates = candidateDates();
-    const scans = [];
-    for (const d of dates) {
-      const result = await callOnce(serviceKey, d, indsSclsCd, 1);
-      scans.push({
-        date: d,
-        resultCode: result.body?.body?.resultCode ?? result.body?.resultCode,
-        totalCount: result.body?.body?.totalCount ?? result.body?.totalCount ?? null,
-      });
-    }
+    const scans = await Promise.all(
+      dates.map(async (d) => {
+        const result = await callOnce(serviceKey, d, indsSclsCd, 1);
+        return {
+          date: d,
+          resultCode: result.body?.body?.resultCode ?? result.body?.resultCode,
+          totalCount: result.body?.body?.totalCount ?? result.body?.totalCount ?? null,
+        };
+      })
+    );
     return res.status(200).json({ scanned: scans.length, results: scans });
   } catch (e) {
     return res.status(500).json({ error: String(e.message || e) });
