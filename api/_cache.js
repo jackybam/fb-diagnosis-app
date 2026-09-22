@@ -12,11 +12,14 @@
 // 다시 부르지 않고 캐시된 값을 바로 돌려준다. 매장 수 데이터는 분기 단위, 검색 트렌드는
 // 월 단위로만 실제로 바뀌는 데이터라 몇 시간~하루 정도 캐싱해도 정확도 손해가 거의 없음.
 //
-// UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN 환경변수가 아직 없으면(Upstash 연결 전)
-// 캐시 없이 조용히 넘어간다 — 캐시는 있으면 좋고 없어도 앱이 그대로 동작해야 하는 "최적화"이지,
+// KV_REST_API_URL / KV_REST_API_TOKEN 환경변수가 아직 없으면(Upstash 연결 전) 캐시 없이
+// 조용히 넘어간다 — 캐시는 있으면 좋고 없어도 앱이 그대로 동작해야 하는 "최적화"이지,
 // 필수 요소가 아니라서 여기서 나는 에러가 진단 기능 자체를 막으면 안 됨.
-const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
-const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+// (참고: Vercel Marketplace에서 "Upstash for Redis"를 연결하면 UPSTASH_REDIS_REST_URL이
+// 아니라 예전 "Vercel KV" 시절 이름 그대로 KV_REST_API_URL / KV_REST_API_TOKEN으로 들어옴 —
+// 실제 배포 후 Environment Variables 화면에서 확인한 이름 기준으로 맞춤)
+const UPSTASH_URL = process.env.KV_REST_API_URL;
+const UPSTASH_TOKEN = process.env.KV_REST_API_TOKEN;
 
 function enabled() {
   return !!(UPSTASH_URL && UPSTASH_TOKEN);
