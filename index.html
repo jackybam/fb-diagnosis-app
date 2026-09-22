@@ -751,6 +751,11 @@ async function runIdea() {
   const isAllMode = biz.includes(","); // "전체 (OO 통틀어)" 선택한 경우
   const bizDisplay = isAllMode ? `${bizMajor} 전체` : biz; // 화면에 보여줄 때만 쓰는 짧은 표기
   const item = customItem || bizDisplay; // 이름 안 넣으면 선택한 세부업종(또는 "전체" 표기) 이름 그대로 사용
+  // 네이버 트렌드 검색은 따로 키워드를 둔다 — "한식 전체"처럼 실제로 아무도 안 쓰는 말을
+  // 그대로 검색하면 검색량이 항상 0으로 나와서 관심도 지수가 매번 "추정"으로 빠지는 버그가
+  // 있었음. 이름을 직접 안 넣었고 "전체" 모드면, 화면 표기("한식 전체")가 아니라 대분류
+  // 이름("한식")만 검색어로 써야 실제 검색량이 잡힘.
+  const trendKeyword = customItem || (isAllMode ? bizMajor : biz);
 
   // 아이템명 안에 다른 세부업종을 암시하는 단어가 있으면 카테고리 선택 실수일 수 있으니 확인
   // ("전체" 모드에서는 어차피 다 합쳐서 보니까 이 경고 자체가 의미 없어서 건너뜀)
@@ -782,7 +787,7 @@ async function runIdea() {
 
   const [density, buzz] = await Promise.all([
     fetchRealDensity(adongCd, biz, bizMajor, regionState.idea.ctprvnNm, regionState.idea.signguNm, regionState.idea.dongLabel),
-    fetchRealBuzz(item, biz, bizMajor),
+    fetchRealBuzz(trendKeyword, biz, bizMajor),
   ]);
 
   btn.disabled = false;
