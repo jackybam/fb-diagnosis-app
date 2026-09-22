@@ -29,11 +29,11 @@ function candidateDates() {
   return Array.from(dates).sort().reverse();
 }
 
-async function callOnce(serviceKey, date, indsSclsCd, numOfRows) {
+async function callOnce(serviceKey, date, indsSclsCd, numOfRows, pageNo = 1) {
   const params = new URLSearchParams({
     serviceKey,
     key: date,
-    pageNo: "1",
+    pageNo: String(pageNo),
     numOfRows: String(numOfRows),
     type: "json",
   });
@@ -70,14 +70,14 @@ function findFirst(obj, keys, depth = 0) {
 
 export default async function handler(req, res) {
   try {
-    const { date = "", indsSclsCd = "" } = req.query;
+    const { date = "", indsSclsCd = "", pageNo = "1" } = req.query;
     const serviceKey = process.env.SBIZ_API_KEY;
     if (!serviceKey) {
       return res.status(500).json({ error: "SBIZ_API_KEY 없음" });
     }
 
     if (date) {
-      const result = await callOnce(serviceKey, date, indsSclsCd, 1000);
+      const result = await callOnce(serviceKey, date, indsSclsCd, 1000, Number(pageNo) || 1);
       if (!result.parsed) {
         // 파싱 실패든 fetch 실패든 원인을 그대로 노출 (여기서 진짜 원인이 보일 거임)
         return res.status(200).json(result);
