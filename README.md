@@ -1,3 +1,4 @@
+[README.md](https://github.com/user-attachments/files/32502815/README.md)
 상권 진단서 (F&B 창업 진단 프로토타입)
 지금 상태
 지역 입력이 자동완성 방식입니다 (동백1동/2동/3동처럼 갈라진 지역도 정확히 매칭).
